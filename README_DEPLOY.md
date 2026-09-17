@@ -14,6 +14,28 @@ self-hosted (not loaded from a CDN) for the decorative fish animation in the Ite
 panel (`assets/js/fish.js`) — purely cosmetic, safe to delete both files plus the
 `<div id="fishTank">`/`<script>` tags in `index.html` if you'd rather not ship it.
 
+## API overview
+
+Full request/response details, field reference, and curl examples for every
+endpoint are in **[API_DOCUMENTATION.md](API_DOCUMENTATION.md)**. Summary:
+
+| Endpoint | Method | Purpose | Auth |
+|---|---|---|---|
+| `public_key.php` | GET | Get the API key | none |
+| `login.php` | POST | Log in, start a session | API key |
+| `logout.php` | POST | Log out | API key |
+| `session.php` | GET | Check login status | API key |
+| `eeprom_config.php` | GET | List (paginated, `total`/`total_pages`) | API key + login |
+| `eeprom_config.php?all=1` | GET | List everything, no pagination | API key + login |
+| `eeprom_config.php?index=N` | GET | Get one record (full detail) | API key + login |
+| `eeprom_config.php?index=N&download=1` | GET | Download `content` as a file | API key + login |
+| `eeprom_config.php` | POST | Create a record | API key + login |
+| `eeprom_config.php?index=N&_method=PUT` | POST | Update a record | API key + login |
+| `eeprom_config.php?index=N&_method=DELETE` | POST | Delete a record | API key + login |
+
+"Login" means either a browser session (`login.php` + cookie) or per-request
+`X-Account`/`X-Password` headers — see API_DOCUMENTATION.md for both.
+
 ## 1. Database objects
 
 The `eeprom_config` table is already created on the remote server (via phpMyAdmin).
