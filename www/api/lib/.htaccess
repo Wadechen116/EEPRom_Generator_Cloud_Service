@@ -1,0 +1,4 @@
+# Best-effort only: this takes effect solely if the server's AllowOverride permits it.
+# These files only declare classes (no output), so direct requests are harmless even
+# if this rule doesn't apply on this server -- see the class files themselves.
+Require all denied

@@ -1,0 +1,12 @@
+# Real credentials -- only config.sample.php is ever meant to be committed
+www/api/config/config.php
+
+# Build artifact, regenerate with: tar -czf deploy.tar.gz -C www .
+deploy.tar.gz
+
+# One-off diagnostic scripts (see README_DEPLOY.md) -- never meant to ship/commit
+www/api/_diag_*.php
+
+# OS junk
+.DS_Store
+Thumbs.db

@@ -1,0 +1,3 @@
+# Best-effort only: this takes effect solely if the server's AllowOverride permits it.
+# The real protection is that config.php never echoes anything (see config.sample.php).
+Require all denied

@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>EEPROM Generator cloud service</title>
+<link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+<div id="particles-bg" aria-hidden="true"></div>
+
+<header class="site-header">
+    <div class="container header-inner">
+        <div>
+            <h1>EEPROM Generator cloud service</h1>
+            <p class="subtitle">Sensor / config-file records, backed by the REST API in <code>api/eeprom_config.php</code></p>
+        </div>
+        <div class="user-box" id="userBox" hidden>
+            <span id="userAccountLabel"></span>
+            <button type="button" class="btn btn-outline" id="logoutBtn">Logout</button>
+        </div>
+    </div>
+</header>
+
+<main class="container">
+    <section class="panel" id="loginPanel">
+        <h2>Login</h2>
+        <form id="loginForm">
+            <div class="field">
+                <label for="loginAccount">Account</label>
+                <input type="text" id="loginAccount" required autocomplete="username">
+            </div>
+            <div class="field">
+                <label for="loginPassword">Password</label>
+                <input type="password" id="loginPassword" required autocomplete="current-password">
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn" id="loginBtn">Login</button>
+            </div>
+        </form>
+        <p class="form-message" id="loginMessage" role="status"></p>
+    </section>
+
+    <div id="appContent" hidden>
+        <div class="items-layout">
+            <section class="panel">
+                <div class="panel-header">
+                    <h2>Items <span id="itemsTotal" class="items-total"></span></h2>
+                    <div class="panel-header-actions">
+                        <button type="button" class="btn" id="addItemBtn">Add Item</button>
+                        <button type="button" class="btn btn-outline" id="refreshBtn">Refresh</button>
+                    </div>
+                </div>
+
+                <div class="panel-toolbar">
+                    <input type="search" id="searchBox" class="search-box" placeholder="Search file name, format, mode...">
+                </div>
+
+                <div class="table-wrap">
+                    <table id="itemsTable">
+                        <thead>
+                            <tr>
+                                <th>Index</th>
+                                <th>File Name</th>
+                                <th>File Format</th>
+                                <th>FPS</th>
+                                <th>MHz</th>
+                                <th>isPGL</th>
+                                <th>Output Format</th>
+                                <th>Support Mode</th>
+                                <th>Modified</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="itemsBody">
+                            <tr><td colspan="10" class="empty">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <aside class="items-side-rail">
+                <div class="tag-cloud" id="tagCloud"></div>
+                <div class="fish-tank" id="fishTank" aria-hidden="true"></div>
+            </aside>
+        </div>
+    </div>
+</main>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<dialog id="itemDialog">
+    <h2 id="formTitle">Add Item</h2>
+    <form id="itemForm">
+        <input type="hidden" id="itemIndex" value="">
+
+        <div class="field-grid">
+            <div class="field">
+                <label for="file_format">File Format</label>
+                <input type="text" id="file_format" required maxlength="50">
+            </div>
+            <div class="field">
+                <label for="fps">FPS</label>
+                <input type="text" id="fps" required maxlength="50">
+            </div>
+            <div class="field">
+                <label for="file_name">File Name</label>
+                <input type="text" id="file_name" required maxlength="150">
+            </div>
+            <div class="field">
+                <label for="MHz">MHz</label>
+                <input type="text" id="MHz" required maxlength="50">
+            </div>
+            <div class="field">
+                <label for="output_format">Output Format</label>
+                <input type="text" id="output_format" required maxlength="50">
+            </div>
+            <div class="field">
+                <label for="support_mode">Support Mode</label>
+                <input type="text" id="support_mode" required maxlength="50">
+            </div>
+            <div class="field field-checkbox">
+                <label><input type="checkbox" id="isPGL" checked> isPGL</label>
+            </div>
+        </div>
+
+        <div class="field">
+            <label for="content">Content</label>
+            <textarea id="content" rows="6" required></textarea>
+        </div>
+
+        <details class="ext-fields">
+            <summary>Extension fields (optional)</summary>
+            <div class="field-grid">
+                <div class="field">
+                    <label for="ext_str1">ext_str1</label>
+                    <input type="text" id="ext_str1" maxlength="100">
+                </div>
+                <div class="field">
+                    <label for="ext_str2">ext_str2</label>
+                    <input type="text" id="ext_str2" maxlength="255">
+                </div>
+                <div class="field">
+                    <label for="ext_int1">ext_int1</label>
+                    <input type="number" id="ext_int1" step="1">
+                </div>
+            </div>
+            <div class="field">
+                <label for="ext_txt1">ext_txt1</label>
+                <textarea id="ext_txt1" rows="2"></textarea>
+            </div>
+            <div class="field">
+                <label for="ext_txt2">ext_txt2</label>
+                <textarea id="ext_txt2" rows="2"></textarea>
+            </div>
+            <div class="field">
+                <label for="ext_txt3">ext_txt3</label>
+                <textarea id="ext_txt3" rows="2"></textarea>
+            </div>
+            <div class="field">
+                <label for="ext_txt4">ext_txt4</label>
+                <textarea id="ext_txt4" rows="2"></textarea>
+            </div>
+            <div class="field">
+                <label for="ext_txt5">ext_txt5</label>
+                <textarea id="ext_txt5" rows="2"></textarea>
+            </div>
+        </details>
+
+        <div class="form-actions">
+            <button type="submit" class="btn" id="submitBtn">Save</button>
+            <button type="button" class="btn btn-outline" id="cancelEditBtn">Cancel</button>
+        </div>
+    </form>
+    <p class="form-message" id="formMessage" role="status"></p>
+</dialog>
+
+<footer class="site-footer">
+    <div class="container">
+        <p>&copy; <span id="year"></span> SOINC Software team</p>
+    </div>
+</footer>
+
+<script src="assets/js/vendor/particles.min.js"></script>
+<script src="assets/js/particles-bg.js"></script>
+<script src="assets/js/vendor/p5.min.js"></script>
+<script src="assets/js/fish.js"></script>
+<script src="assets/js/tagcloud3d.js"></script>
+<script src="assets/js/app.js"></script>
+</body>
+</html>

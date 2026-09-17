@@ -1,0 +1,7 @@
+# Best-effort only (needs AllowOverride on this directory to take effect at all --
+# we deliberately don't rely on this for anything security-critical; see api/bootstrap.php
+# and api/config/config.sample.php for the actual protections).
+Options -Indexes
+<FilesMatch "\.(sql|log|md)$">
+    Require all denied
+</FilesMatch>
