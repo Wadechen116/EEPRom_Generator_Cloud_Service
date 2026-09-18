@@ -16,8 +16,8 @@ All responses are JSON with the same envelope:
 
 ## Authentication
 
-Every endpoint except `public_key.php` requires **two independent layers**, both must
-pass:
+Every endpoint except `public_key.php` and `update.php` requires **two independent
+layers**, both must pass:
 
 ### 1. API Key (all endpoints)
 
@@ -291,6 +291,86 @@ curl -H "X-Account: alice" -H "X-Password: hunter2" -H "X-API-Key: <key>" \
 ```
 
 Not found → HTTP 404.
+
+---
+
+### `GET update.php` — update manifest for the desktop applications
+
+**No authentication.** The applications request their manifest with no headers at
+all, so there is nothing to authenticate with; the packages themselves are static
+files under `project/`, which Apache serves to anyone who knows the path. Not
+being linked from anywhere is the whole of the protection — appropriate for a test
+server, and not a security design.
+
+```
+GET update.php?project=<name>&channel=release|debug
+    [&format=text|json] [&version=<pinned>] [&list=1]
+```
+
+| Parameter | Meaning |
+|---|---|
+| `project` | Folder name under `project/<channel>/`, e.g. `E2pRom_Generator` |
+| `channel` | `release` or `debug` |
+| `format` | `text` (default, what the applications parse) or `json` |
+| `version` | Pin a specific version instead of the newest — for a rollback |
+| `list` | `1` returns every published version as JSON |
+
+One endpoint serves every product: adding an application means adding a folder,
+not an endpoint.
+
+#### Text response (default)
+
+```bash
+curl "https://pend.soinc.com.tw/chamonix/api/update.php?project=E2pRom_Generator&channel=release"
+```
+
+```
+1.0.2
+https://pend.soinc.com.tw/chamonix/project/release/E2pRom_Generator/E2pRom_Generator-1.0.2-setup.exe
+SQL Database cloud sync; Rule 29 writes {0x96,0x07}
+9f8a2c1e...64 hex chars...
+```
+
+| Line | Content |
+|---|---|
+| 1 | Latest version, dotted |
+| 2 | Absolute URL of the package |
+| 3 | Release notes, one line — **never empty**, because the client's parser drops blank lines and the checksum would shift up into the notes |
+| 4 | SHA-256 of the package, hex |
+
+Nothing published answers **404** with `0.0.0` on line 1, which every client
+compares against its own version and reads as "no update".
+
+#### JSON response
+
+```bash
+curl "https://pend.soinc.com.tw/chamonix/api/update.php?project=SOICamConfig&channel=debug&format=json"
+```
+
+```json
+{
+  "success": true,
+  "data": {
+    "project": "SOICamConfig", "channel": "debug",
+    "version": "1.0.7", "file": "SOICamConfig-1.0.7-setup.exe",
+    "url": "https://pend.soinc.com.tw/chamonix/project/debug/SOICamConfig/SOICamConfig-1.0.7-setup.exe",
+    "notes": "...", "sha256": "...", "size": 27216464, "built": "2026-09-18 13:24:00"
+  }
+}
+```
+
+#### Publishing a version
+
+Upload the installer into `project/<channel>/<project>/`, named
+`<anything>-<version>[-setup].exe`. That is the whole procedure: the version
+lives in the file name, so there is no index to update and no index to forget.
+Optional release notes go in a file of the same name with a `.txt` extension.
+`<file>.sha256` is written automatically on the first request and refreshed when
+the package is newer.
+
+A file whose name does not match the pattern is ignored **silently** — after an
+upload, check `?list=1` to confirm it is really published. See
+`www/project/README.md`.
 
 ---
 

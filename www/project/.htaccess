@@ -1,0 +1,19 @@
+# The packages are served straight by Apache -- fast, resumable, no PHP in the
+# path. What must not be served is a listing of them: the only thing keeping an
+# unreleased build private is that nobody knows its name.
+Options -Indexes
+
+# A browser should download a package, never try to display or run it.
+<FilesMatch "\.(exe|zip)$">
+    ForceType application/octet-stream
+    # Guarded: an unguarded Header directive takes the whole directory down
+    # with a 500 on a server where mod_headers is not loaded.
+    <IfModule mod_headers.c>
+        Header set Content-Disposition "attachment"
+    </IfModule>
+</FilesMatch>
+
+# The checksum caches api/update.php writes next to each package are internal.
+<FilesMatch "\.sha256$">
+    Require all denied
+</FilesMatch>
