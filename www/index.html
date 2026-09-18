@@ -61,8 +61,9 @@
                     <table id="itemsTable">
                         <thead>
                             <tr>
-                                <th>Index</th>
+                                <th>#</th>
                                 <th>File Name</th>
+                                <th>Content</th>
                                 <th>File Format</th>
                                 <th>FPS</th>
                                 <th>MHz</th>
@@ -74,7 +75,7 @@
                             </tr>
                         </thead>
                         <tbody id="itemsBody">
-                            <tr><td colspan="10" class="empty">Loading...</td></tr>
+                            <tr><td colspan="11" class="empty">Loading...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -96,9 +97,16 @@
         <input type="hidden" id="itemIndex" value="">
 
         <div class="field-grid">
+            <!-- Fixed value domains: the desktop tool syncs this table and stores
+                 the same values, so a free-text field here would make rows flip
+                 back and forth. api/eeprom_config.php enforces the same lists. -->
             <div class="field">
                 <label for="file_format">File Format</label>
-                <input type="text" id="file_format" required maxlength="50">
+                <select id="file_format" required>
+                    <option value="">(not set)</option>
+                    <option value="INI">INI</option>
+                    <option value="BIN">BIN</option>
+                </select>
             </div>
             <div class="field">
                 <label for="fps">FPS</label>
@@ -114,11 +122,19 @@
             </div>
             <div class="field">
                 <label for="output_format">Output Format</label>
-                <input type="text" id="output_format" required maxlength="50">
+                <select id="output_format" required>
+                    <option value="">(not set)</option>
+                    <option value="AHD">AHD</option>
+                    <option value="YUV422">YUV422</option>
+                </select>
             </div>
             <div class="field">
                 <label for="support_mode">Support Mode</label>
-                <input type="text" id="support_mode" required maxlength="50">
+                <select id="support_mode" required>
+                    <option value="">(not set)</option>
+                    <option value="Master">Master</option>
+                    <option value="Slave">Slave</option>
+                </select>
             </div>
             <div class="field field-checkbox">
                 <label><input type="checkbox" id="isPGL" checked> isPGL</label>
@@ -126,7 +142,16 @@
         </div>
 
         <div class="field">
-            <label for="content">Content</label>
+            <label for="contentFile">Load from file (optional)</label>
+            <!-- Fills file_name, file_format and content from a local file. A
+                 .bin is converted to hex text here, because that is what the
+                 column holds: MySQL TEXT cannot carry raw bytes, and the
+                 desktop tool stores the same hex. -->
+            <input type="file" id="contentFile" accept=".ini,.bin,.txt">
+        </div>
+
+        <div class="field">
+            <label for="content">Content <span class="hint" id="contentHint"></span></label>
             <textarea id="content" rows="6" required></textarea>
         </div>
 

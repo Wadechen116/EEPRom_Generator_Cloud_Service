@@ -12,6 +12,9 @@
 let API_KEY = null;
 const API_BASE = "api/eeprom_config.php";
 
+// file_format, output_format and support_mode are <select>s, not text inputs --
+// same .value handling, fixed value domains. See index.html and ENUM_FIELDS in
+// api/eeprom_config.php for why they are fixed.
 const TEXT_FIELDS = ["file_format", "fps", "file_name", "MHz", "output_format", "support_mode", "content",
     "ext_str1", "ext_str2", "ext_txt1", "ext_txt2", "ext_txt3", "ext_txt4", "ext_txt5"];
 
@@ -38,6 +41,8 @@ const els = {
     submitBtn: document.getElementById("submitBtn"),
     cancelEditBtn: document.getElementById("cancelEditBtn"),
     formMessage: document.getElementById("formMessage"),
+    contentFile: document.getElementById("contentFile"),
+    contentHint: document.getElementById("contentHint"),
     itemsBody: document.getElementById("itemsBody"),
     refreshBtn: document.getElementById("refreshBtn"),
     itemsTotal: document.getElementById("itemsTotal"),
@@ -157,7 +162,7 @@ els.logoutBtn.addEventListener("click", async () => {
 /* ---------------- Items CRUD ---------------- */
 
 async function loadItems() {
-    els.itemsBody.innerHTML = `<tr><td colspan="10" class="empty">Loading...</td></tr>`;
+    els.itemsBody.innerHTML = `<tr><td colspan="11" class="empty">Loading...</td></tr>`;
     try {
         // ?all=1: the page has no pagination UI, so it needs every row, not just the
         // API's default first-20 page (see api/eeprom_config.php for the paginated form).
@@ -171,7 +176,7 @@ async function loadItems() {
             showLoggedOut();
             return;
         }
-        els.itemsBody.innerHTML = `<tr><td colspan="10" class="empty error">${escapeHtml(err.message)}</td></tr>`;
+        els.itemsBody.innerHTML = `<tr><td colspan="11" class="empty error">${escapeHtml(err.message)}</td></tr>`;
     }
 }
 
@@ -191,13 +196,19 @@ function applyFilter() {
 
 function renderItems(items) {
     if (!items || items.length === 0) {
-        els.itemsBody.innerHTML = `<tr><td colspan="10" class="empty">No items match.</td></tr>`;
+        els.itemsBody.innerHTML = `<tr><td colspan="11" class="empty">No items match.</td></tr>`;
         return;
     }
-    els.itemsBody.innerHTML = items.map((item) => `
+    // The leading "#" is the row's position in the list, which stays 1..N however
+    // the table is filtered or whatever has been deleted. The database key
+    // (`index`) is not shown -- it is a primary key with gaps in it after a
+    // delete, which reads as a mistake -- but every row action still carries it
+    // in data-index, so edit/download/delete address the right record.
+    els.itemsBody.innerHTML = items.map((item, position) => `
         <tr>
-            <td>${item.index}</td>
+            <td class="col-seq">${position + 1}</td>
             <td>${escapeHtml(item.file_name)}</td>
+            <td class="col-content" title="${escapeHtml(item.content_preview)}">${escapeHtml(item.content_preview)}</td>
             <td>${escapeHtml(item.file_format)}</td>
             <td>${escapeHtml(item.fps)}</td>
             <td>${escapeHtml(item.MHz)}</td>
@@ -243,7 +254,173 @@ function resetForm() {
     els.form.reset();
     els.index.value = "";
     els.isPGL.checked = true;
+    els.contentFile.value = "";
     setFormMessage("");
+    updateContentHint();
+}
+
+/* ---------------- content: text for INI, hex bytes for BIN ---------------- */
+
+// "12 40 AD 01", 16 bytes per line. The desktop tool writes its hex exactly
+// like this and api/eeprom_config.php re-normalizes whatever it is sent, so a
+// file uploaded here and the same file imported there give the same string --
+// which is what keeps a sync from seeing a difference that is not one.
+function bytesToHex(bytes) {
+    const parts = [];
+    for (let i = 0; i < bytes.length; i++) {
+        if (i !== 0) parts.push(i % 16 === 0 ? "\r\n" : " ");
+        parts.push(bytes[i].toString(16).padStart(2, "0").toUpperCase());
+    }
+    return parts.join("");
+}
+
+// An INI record whose content is really a hex image is the one mismatch nothing
+// else catches: the API stores it, a sync copies it, and it only shows up when
+// the download button writes an .ini full of "12 40 AD 01". The reverse (BIN
+// holding text) is already rejected by the hex check on the server.
+//
+// Enough bytes to rule out a coincidence: an INI file has '=' and '[' in it, so
+// it never matches at all, and one or two tokens could be anything.
+function looksLikeHexImage(text) {
+    const tokens = text.trim().split(/[\s,]+/).filter(Boolean);
+    if (tokens.length < 4) return false;
+    return tokens.every((t) => /^(0x)?[0-9a-fA-F]{1,2}$/.test(t));
+}
+
+function updateContentHint() {
+    els.contentHint.textContent = els.file_format.value === "BIN"
+        ? "(hex bytes, e.g. 12 40 AD 01)"
+        : "";
+}
+
+/* ---------------- reading a file's own settings ----------------
+ *
+ * The same rules the desktop tool applies on Import File (see
+ * UI/Dialogs/SqlDbDialog.cpp -- AnalyzePairs8A8D / AnalyzePairs16A8D /
+ * AnalyzeBinContent / AnalyzeIniSupportMode). Both sides have to read a file
+ * the same way, or the same file would land in the database as two different
+ * records depending on where it was imported.
+ *
+ * Whatever the file does not say is left blank rather than defaulted: a guessed
+ * fps that happens to be wrong is harder to notice than an empty box.
+ */
+
+// Register writes as (address, data) pairs. An INI writes them as "0x.." text;
+// an address written with more than two hex digits (0x0020) means 16-bit
+// addressing, which uses a different set of markers.
+function scanIniPairs(text) {
+    const tokens = [];
+    const widths = [];
+    const re = /0x([0-9a-fA-F]+)/g;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+        tokens.push(parseInt(m[1], 16));
+        widths.push(m[1].length);
+    }
+    const pairs = [];
+    let addr16 = false;
+    for (let i = 0; i + 1 < tokens.length; i += 2) {
+        pairs.push([tokens[i], tokens[i + 1]]);
+        if (widths[i] > 2) addr16 = true;
+    }
+    return { pairs, addr16 };
+}
+
+// A BIN image is the same pairs as raw bytes.
+function scanBinPairs(bytes) {
+    const pairs = [];
+    for (let i = 0; i + 1 < bytes.length; i += 2) pairs.push([bytes[i], bytes[i + 1]]);
+    return pairs;
+}
+
+// Markers, by addressing mode. 8-bit addressing is what a BIN image and a plain
+// INI use; 16-bit is the 0x0230/0x0020/0x0200/0x01F0 set.
+const MARKERS_8BIT  = { pgl: [0x30, 0x19], fps25: [0x20, 0xDE], fps30: [0x20, 0x39],
+                        yuvA: [0x00, 0x00], yuvB: [0xF0, 0x93] };
+const MARKERS_16BIT = { pgl: [0x0230, 0x19], fps25: [0x0020, 0xDE], fps30: [0x0020, 0x39],
+                        yuvA: [0x0200, 0x00], yuvB: [0x01F0, 0x93] };
+
+// Returns only what the pairs actually say: { fps, isPGL, output_format }, each
+// key absent when no marker matched.
+function analyzePairs(pairs, markers) {
+    const found = {};
+    if (!pairs.length) return found;
+
+    const has = ([a, d]) => pairs.some((p) => p[0] === a && p[1] === d);
+
+    if (has(markers.pgl)) found.isPGL = 1;
+    else found.isPGL = 0;            // pairs were readable and the marker is not there
+
+    if (has(markers.fps25)) found.fps = "25";
+    else if (has(markers.fps30)) found.fps = "30";
+
+    found.output_format = (has(markers.yuvA) && has(markers.yuvB)) ? "YUV422" : "AHD";
+    return found;
+}
+
+// An INI that carries both sections describes a device driven as a slave.
+function analyzeIniSupportMode(text) {
+    const lower = text.toLowerCase();
+    return (lower.includes("[sensortype]") && lower.includes("[ini_register]"))
+        ? "Slave" : "Master";
+}
+
+// Fills a field only if the analysis produced a value; otherwise clears it, so
+// what is left blank is visibly the tool's "I could not tell".
+function applyAnalysis(found) {
+    const filled = [];
+    const blank = [];
+
+    const set = (field, value) => {
+        els[field].value = value ?? "";
+        (value ? filled : blank).push(field);
+    };
+    set("fps", found.fps);
+    set("output_format", found.output_format);
+    set("support_mode", found.support_mode);
+
+    // isPGL is a checkbox: it cannot be blank, so an unreadable file leaves it
+    // unticked and that is worth saying out loud.
+    els.isPGL.checked = found.isPGL === 1;
+    if (found.isPGL === undefined) blank.push("isPGL (left unticked)");
+
+    // Nothing in either file format states the clock.
+    blank.push("MHz");
+    return { filled, blank };
+}
+
+async function loadContentFromFile(file) {
+    const isBin = /\.bin$/i.test(file.name);
+    try {
+        const found = {};
+
+        if (isBin) {
+            const bytes = new Uint8Array(await file.arrayBuffer());
+            els.content.value = bytesToHex(bytes);
+            els.file_format.value = "BIN";
+            Object.assign(found, analyzePairs(scanBinPairs(bytes), MARKERS_8BIT));
+            // A BIN image is the whole EEPROM of a single device.
+            found.support_mode = "Master";
+        } else {
+            const text = await file.text();
+            els.content.value = text;
+            els.file_format.value = "INI";
+            const { pairs, addr16 } = scanIniPairs(text);
+            Object.assign(found, analyzePairs(pairs, addr16 ? MARKERS_16BIT : MARKERS_8BIT));
+            found.support_mode = analyzeIniSupportMode(text);
+        }
+
+        els.file_name.value = file.name;
+        const { filled, blank } = applyAnalysis(found);
+        updateContentHint();
+
+        let message = `Loaded ${file.name} (${file.size} bytes).`;
+        if (filled.length) message += ` Read from the file: ${filled.join(", ")}.`;
+        if (blank.length) message += ` Please fill in: ${blank.join(", ")}.`;
+        setFormMessage(message);
+    } catch (err) {
+        setFormMessage(`Cannot read ${file.name}: ${err.message}`, true);
+    }
 }
 
 function fillForm(item) {
@@ -251,6 +428,7 @@ function fillForm(item) {
     TEXT_FIELDS.forEach((f) => { els[f].value = item[f] ?? ""; });
     els.isPGL.checked = !!item.isPGL;
     els.ext_int1.value = item.ext_int1 ?? "";
+    updateContentHint();
 }
 
 function readForm() {
@@ -294,6 +472,8 @@ async function deleteItem(index) {
     }
 }
 
+// The server turns a BIN row's hex back into bytes before sending it, so what
+// lands on disk is the image, not the hex. See downloadRecord() in the API.
 async function downloadItem(index) {
     const item = currentItems.find((i) => String(i.index) === String(index));
     const suggestedName = (item && item.file_name) || `eeprom_config_${index}.txt`;
@@ -320,6 +500,12 @@ async function downloadItem(index) {
     }
 }
 
+els.contentFile.addEventListener("change", (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (file) loadContentFromFile(file);
+});
+els.file_format.addEventListener("change", updateContentHint);
+
 els.addItemBtn.addEventListener("click", openAddDialog);
 els.cancelEditBtn.addEventListener("click", () => els.itemDialog.close());
 
@@ -327,6 +513,16 @@ els.form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const payload = readForm();
     const index = els.index.value;
+
+    if (payload.file_format === "INI" && looksLikeHexImage(payload.content)) {
+        const proceed = confirm(
+            "File Format is INI, but the content is hex bytes -- that is what a BIN " +
+            "record holds.\n\nNothing will complain later: downloading this record " +
+            "would give an .ini file full of \"12 40 AD 01\" instead of a config file." +
+            "\n\nSave it as INI anyway?"
+        );
+        if (!proceed) return;
+    }
 
     try {
         if (index) {

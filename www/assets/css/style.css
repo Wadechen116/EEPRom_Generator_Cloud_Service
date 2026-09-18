@@ -5,6 +5,10 @@
     --color-primary: #2f6fed;
     --color-primary-dark: #1d4fbd;
     --color-alt-bg: #f4f6f9;
+    /* Two close shades for the table header's alternating columns -- far enough
+       apart to tell the columns apart, close enough not to read as data. */
+    --color-th-light: #eef1f6;
+    --color-th-dark: #e2e7f0;
     --color-border: #e3e7ed;
     --color-danger: #d64545;
     --max-width: 960px;
@@ -124,6 +128,13 @@ main.container {
     font-size: 0.9rem;
 }
 
+/* Says what a field expects right next to its name -- used for "content" when
+   the record is BIN and the text has to be hex bytes. */
+.field label .hint {
+    font-weight: 400;
+    opacity: 0.7;
+}
+
 .field input,
 .field textarea,
 .field select {
@@ -228,7 +239,7 @@ main.container {
 table {
     width: 100%;
     border-collapse: collapse;
-    min-width: 560px;
+    min-width: 640px;   /* content and the row number in, the database key out */
 }
 
 th, td {
@@ -238,7 +249,42 @@ th, td {
     font-size: 0.92rem;
 }
 
-th { color: var(--color-muted); font-weight: 600; }
+/* Header bar: alternating column shades so a wide row stays readable across --
+   the eye can follow one column down instead of counting cells. Set on <th>
+   only; the body rows keep their plain background so the stripes read as a
+   header, not as data. */
+th {
+    color: var(--color-muted);
+    font-weight: 600;
+    background: var(--color-th-light);
+    border-bottom: 1px solid var(--color-border);
+}
+
+thead th:nth-child(even) { background: var(--color-th-dark); }
+
+/* Row position, not a value from the record: quiet, narrow, right-aligned so
+   the numbers line up. */
+td.col-seq {
+    width: 2.5rem;
+    text-align: right;
+    color: var(--color-muted);
+}
+
+
+/* Content is a preview, not the value: one line, cut off with an ellipsis, with
+   the whole preview in the tooltip. Roughly half the File Name column -- a hex
+   image would otherwise push every other column off the screen.
+   max-width is what makes text-overflow work in a table cell; width alone is
+   only a hint that a long unbreakable string overrides. */
+td.col-content {
+    max-width: 11rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.85rem;
+}
 
 td.empty {
     text-align: center;

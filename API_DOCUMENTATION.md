@@ -160,7 +160,7 @@ curl -H "X-Account: alice" -H "X-Password: hunter2" -H "X-API-Key: <key>" \
         "MHz": "24",
         "isPGL": 1,
         "output_format": "AHD",
-        "support_mode": "Normal",
+        "support_mode": "Master",
         "create_time": "2026-09-17 11:29:25",
         "modify_time": "2026-09-17 12:33:08"
       }
@@ -204,7 +204,7 @@ curl -H "X-Account: alice" -H "X-Password: hunter2" -H "X-API-Key: <key>" \
     "MHz": "24",
     "isPGL": 1,
     "output_format": "AHD",
-    "support_mode": "Normal",
+    "support_mode": "Master",
     "create_time": "2026-09-17 11:29:25",
     "modify_time": "2026-09-17 12:33:08",
     "content": "[Sensor]\r\nModel=IMX178\r\nGain=100",
@@ -247,8 +247,8 @@ curl -H "X-Account: alice" -H "X-Password: hunter2" -H "X-API-Key: <key>" \
     "fps": "25",
     "file_name": "test.ini",
     "MHz": "24",
-    "output_format": "RAW10",
-    "support_mode": "Normal",
+    "output_format": "AHD",
+    "support_mode": "Master",
     "content": "...",
     "isPGL": true
   }' \
@@ -271,7 +271,7 @@ fields you send are changed.
 ```bash
 curl -H "X-Account: alice" -H "X-Password: hunter2" -H "X-API-Key: <key>" \
   -H "Content-Type: application/json" \
-  -d '{"support_mode":"HDR"}' \
+  -d '{"support_mode":"Slave"}' \
   "https://pend.soinc.com.tw/chamonix/api/eeprom_config.php?index=1&_method=PUT"
 ```
 
@@ -294,19 +294,63 @@ Not found → HTTP 404.
 
 ---
 
+## Value domains and `content` encoding
+
+This table is synced into the desktop tool (E2pRom_Generator, **Sync Cloud**), which
+stores the same columns with the same values. Two sides that spell a value differently
+would make the same row flip back and forth on every sync, so three fields have fixed
+domains:
+
+| Field | Allowed values |
+|---|---|
+| `file_format` | `INI`, `BIN` |
+| `output_format` | `AHD`, `YUV422` |
+| `support_mode` | `Master`, `Slave` |
+| `isPGL` | `1`, `0` |
+
+Input is matched case-insensitively and stored in the spelling above (`ini` → `INI`).
+Anything else is rejected:
+
+```json
+{ "success": false, "error": "Invalid support_mode: \"HDR\". Allowed: Master, Slave" }
+```
+→ HTTP 400
+
+### `content` for a BIN record
+
+`content` is a MySQL `MEDIUMTEXT` column and cannot carry raw binary, so a BIN record's
+image travels and is stored as **hex text**:
+
+```
+12 40 AD 01 00 12 34 56 78 9A BC DE F0 11 22 33
+44 55 66 77
+```
+
+16 bytes per line. The API re-normalizes whatever hex you send into exactly this
+spacing (`0x12`, `12,40`, one long line — all accepted), so the same file uploaded
+here and imported in the desktop tool produce the same string and a sync sees no
+difference. Content that is not hex is rejected with HTTP 400.
+
+`?download=1` converts it back: the file you get is the image, not the hex. A BIN
+record whose stored content is not valid hex returns HTTP 409 instead of a file.
+
+An `INI` record's `content` is the file's own text, unchanged.
+
+---
+
 ## `eeprom_config` field reference
 
 | Field | Type | Required on create | Notes |
 |---|---|---|---|
 | `index` | int | — | primary key, auto-increment, read-only |
-| `file_format` | string(50) | yes | e.g. `INI`, `BIN` |
+| `file_format` | string(50) | yes | **`INI` or `BIN` only** |
 | `fps` | string(50) | yes | |
 | `file_name` | string(150) | yes | used as the download filename |
 | `MHz` | string(50) | yes | |
 | `isPGL` | bool (0/1) | no | default `true` |
-| `output_format` | string(50) | yes | |
-| `support_mode` | string(50) | yes | |
-| `content` | text | yes | the config file body; only column returned by `download=1` |
+| `output_format` | string(50) | yes | **`AHD` or `YUV422` only** |
+| `support_mode` | string(50) | yes | **`Master` or `Slave` only** |
+| `content` | mediumtext | yes | the config file body — **hex text when `file_format` is `BIN`**; the only column returned by `download=1` |
 | `ext_str1` | string(100) | no | free-form extension field |
 | `ext_str2` | string(255) | no | free-form extension field |
 | `ext_int1` | int | no | free-form extension field |
@@ -340,6 +384,10 @@ Not found → HTTP 404.
   instead (confirmed to work here). If integrating from a different server, try
   Basic Auth first and fall back to the custom headers if you get `Login required`
   with correct credentials.
+- **Three fields have fixed value domains and a BIN `content` is hex text** — see the
+  section above. This is what lets the desktop tool copy rows in without translating
+  anything; a conversion layer on either side would be one more place for a row to come
+  out subtly wrong.
 - **List responses are paginated by default** (`page`/`limit`, max 100) — pass
   `?all=1` to get everything in one response if you don't need paging.
 - **The API key is not equivalent to login credentials.** It stops naive/automated
