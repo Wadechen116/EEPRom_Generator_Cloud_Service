@@ -17,6 +17,12 @@ CREATE TABLE IF NOT EXISTS eeprom_config (
     support_mode    VARCHAR(50)  NOT NULL,
     create_time     TIMESTAMP    NULL DEFAULT CURRENT_TIMESTAMP,
     modify_time     TIMESTAMP    NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    -- account: who wrote the row. Stamped server-side from the logged-in session
+    -- on every create/update (api/eeprom_config.php) -- never client-settable.
+    -- Nullable because rows created before this column existed have none.
+    account         VARCHAR(100) NULL DEFAULT NULL,
+    -- comment: free text, what this version is for (production/sample/test/...).
+    comment         TEXT NULL DEFAULT NULL,
     -- MEDIUMTEXT, not TEXT: a BIN row stores its image as hex text (see the
     -- note below), and 3 characters per byte puts a 64 KB EEPROM image at
     -- ~192 KB -- well past TEXT's 64 KB limit, where MySQL would truncate it.
