@@ -17,7 +17,10 @@ CREATE TABLE IF NOT EXISTS eeprom_config (
     support_mode    VARCHAR(50)  NOT NULL,
     create_time     TIMESTAMP    NULL DEFAULT CURRENT_TIMESTAMP,
     modify_time     TIMESTAMP    NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    content         TEXT NOT NULL,
+    -- MEDIUMTEXT, not TEXT: a BIN row stores its image as hex text (see the
+    -- note below), and 3 characters per byte puts a 64 KB EEPROM image at
+    -- ~192 KB -- well past TEXT's 64 KB limit, where MySQL would truncate it.
+    content         MEDIUMTEXT NOT NULL,
     ext_str1        VARCHAR(100) NULL DEFAULT NULL,
     ext_str2        VARCHAR(255) NULL DEFAULT NULL,
     ext_int1        INT(11)      NULL DEFAULT NULL,
@@ -32,7 +35,34 @@ CREATE TABLE IF NOT EXISTS eeprom_config (
 
 -- `content` uses a binary collation (case/byte exact) per spec; every other text
 -- column uses utf8mb4_unicode_ci, inherited from the table default above.
-ALTER TABLE eeprom_config MODIFY content TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL;
+ALTER TABLE eeprom_config MODIFY content MEDIUMTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL;
+
+-- ---------------------------------------------------------------------------
+-- Value domains
+--
+-- This table is synced into the desktop tool (E2pRom_Generator, "Sync Cloud"),
+-- which stores the same columns with the same values. If the two sides allowed
+-- different spellings, the same row would flip back and forth on every sync --
+-- so the allowed values are fixed:
+--
+--   file_format    'INI' | 'BIN'          (upper case)
+--   output_format  'AHD' | 'YUV422'
+--   support_mode   'Master' | 'Slave'
+--   isPGL          1 | 0
+--
+-- api/eeprom_config.php enforces this on every create and update, and is the
+-- authority: the CHECK constraints below are a second line of defence and are
+-- silently ignored by MySQL before 8.0.16 and MariaDB before 10.2.
+--
+-- `content` holds the file: an INI row keeps the file's own text, a BIN row
+-- keeps hex bytes, "12 40 AD 01", 16 bytes per line. MySQL TEXT cannot carry
+-- raw binary, and the desktop tool stores exactly the same text, so a sync is
+-- a straight copy.
+-- ---------------------------------------------------------------------------
+ALTER TABLE eeprom_config
+    ADD CONSTRAINT chk_file_format   CHECK (file_format   IN ('INI', 'BIN')),
+    ADD CONSTRAINT chk_output_format CHECK (output_format IN ('AHD', 'YUV422')),
+    ADD CONSTRAINT chk_support_mode  CHECK (support_mode  IN ('Master', 'Slave'));
 
 -- Login accounts for the web UI (api/login.php). password_hash stores a bcrypt hash
 -- (PHP password_hash()) -- NEVER a plaintext password. Use tools/create_user.php

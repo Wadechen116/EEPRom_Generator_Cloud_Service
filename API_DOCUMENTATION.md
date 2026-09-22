@@ -16,8 +16,8 @@ All responses are JSON with the same envelope:
 
 ## Authentication
 
-Every endpoint except `public_key.php` requires **two independent layers**, both must
-pass:
+Every endpoint except `public_key.php` and `update.php` requires **two independent
+layers**, both must pass:
 
 ### 1. API Key (all endpoints)
 
@@ -160,7 +160,7 @@ curl -H "X-Account: alice" -H "X-Password: hunter2" -H "X-API-Key: <key>" \
         "MHz": "24",
         "isPGL": 1,
         "output_format": "AHD",
-        "support_mode": "Normal",
+        "support_mode": "Master",
         "create_time": "2026-09-17 11:29:25",
         "modify_time": "2026-09-17 12:33:08"
       }
@@ -204,7 +204,7 @@ curl -H "X-Account: alice" -H "X-Password: hunter2" -H "X-API-Key: <key>" \
     "MHz": "24",
     "isPGL": 1,
     "output_format": "AHD",
-    "support_mode": "Normal",
+    "support_mode": "Master",
     "create_time": "2026-09-17 11:29:25",
     "modify_time": "2026-09-17 12:33:08",
     "content": "[Sensor]\r\nModel=IMX178\r\nGain=100",
@@ -247,8 +247,8 @@ curl -H "X-Account: alice" -H "X-Password: hunter2" -H "X-API-Key: <key>" \
     "fps": "25",
     "file_name": "test.ini",
     "MHz": "24",
-    "output_format": "RAW10",
-    "support_mode": "Normal",
+    "output_format": "AHD",
+    "support_mode": "Master",
     "content": "...",
     "isPGL": true
   }' \
@@ -271,7 +271,7 @@ fields you send are changed.
 ```bash
 curl -H "X-Account: alice" -H "X-Password: hunter2" -H "X-API-Key: <key>" \
   -H "Content-Type: application/json" \
-  -d '{"support_mode":"HDR"}' \
+  -d '{"support_mode":"Slave"}' \
   "https://pend.soinc.com.tw/chamonix/api/eeprom_config.php?index=1&_method=PUT"
 ```
 
@@ -294,19 +294,143 @@ Not found → HTTP 404.
 
 ---
 
+### `GET update.php` — update manifest for the desktop applications
+
+**No authentication.** The applications request their manifest with no headers at
+all, so there is nothing to authenticate with; the packages themselves are static
+files under `project/`, which Apache serves to anyone who knows the path. Not
+being linked from anywhere is the whole of the protection — appropriate for a test
+server, and not a security design.
+
+```
+GET update.php?project=<name>&channel=release|debug
+    [&format=text|json] [&version=<pinned>] [&list=1]
+```
+
+| Parameter | Meaning |
+|---|---|
+| `project` | Folder name under `project/<channel>/`, e.g. `E2pRom_Generator` |
+| `channel` | `release` or `debug` |
+| `format` | `text` (default, what the applications parse) or `json` |
+| `version` | Pin a specific version instead of the newest — for a rollback |
+| `list` | `1` returns every published version as JSON |
+
+One endpoint serves every product: adding an application means adding a folder,
+not an endpoint.
+
+#### Text response (default)
+
+```bash
+curl "https://pend.soinc.com.tw/chamonix/api/update.php?project=E2pRom_Generator&channel=release"
+```
+
+```
+1.0.2
+https://pend.soinc.com.tw/chamonix/project/release/E2pRom_Generator/E2pRom_Generator-1.0.2-setup.exe
+SQL Database cloud sync; Rule 29 writes {0x96,0x07}
+9f8a2c1e...64 hex chars...
+```
+
+| Line | Content |
+|---|---|
+| 1 | Latest version, dotted |
+| 2 | Absolute URL of the package |
+| 3 | Release notes, one line — **never empty**, because the client's parser drops blank lines and the checksum would shift up into the notes |
+| 4 | SHA-256 of the package, hex |
+
+Nothing published answers **404** with `0.0.0` on line 1, which every client
+compares against its own version and reads as "no update".
+
+#### JSON response
+
+```bash
+curl "https://pend.soinc.com.tw/chamonix/api/update.php?project=SOICamConfig&channel=debug&format=json"
+```
+
+```json
+{
+  "success": true,
+  "data": {
+    "project": "SOICamConfig", "channel": "debug",
+    "version": "1.0.7", "file": "SOICamConfig-1.0.7-setup.exe",
+    "url": "https://pend.soinc.com.tw/chamonix/project/debug/SOICamConfig/SOICamConfig-1.0.7-setup.exe",
+    "notes": "...", "sha256": "...", "size": 27216464, "built": "2026-09-18 13:24:00"
+  }
+}
+```
+
+#### Publishing a version
+
+Upload the installer into `project/<channel>/<project>/`, named
+`<anything>-<version>[-setup].exe`. That is the whole procedure: the version
+lives in the file name, so there is no index to update and no index to forget.
+Optional release notes go in a file of the same name with a `.txt` extension.
+`<file>.sha256` is written automatically on the first request and refreshed when
+the package is newer.
+
+A file whose name does not match the pattern is ignored **silently** — after an
+upload, check `?list=1` to confirm it is really published. See
+`www/project/README.md`.
+
+---
+
+## Value domains and `content` encoding
+
+This table is synced into the desktop tool (E2pRom_Generator, **Sync Cloud**), which
+stores the same columns with the same values. Two sides that spell a value differently
+would make the same row flip back and forth on every sync, so three fields have fixed
+domains:
+
+| Field | Allowed values |
+|---|---|
+| `file_format` | `INI`, `BIN` |
+| `output_format` | `AHD`, `YUV422` |
+| `support_mode` | `Master`, `Slave` |
+| `isPGL` | `1`, `0` |
+
+Input is matched case-insensitively and stored in the spelling above (`ini` → `INI`).
+Anything else is rejected:
+
+```json
+{ "success": false, "error": "Invalid support_mode: \"HDR\". Allowed: Master, Slave" }
+```
+→ HTTP 400
+
+### `content` for a BIN record
+
+`content` is a MySQL `MEDIUMTEXT` column and cannot carry raw binary, so a BIN record's
+image travels and is stored as **hex text**:
+
+```
+12 40 AD 01 00 12 34 56 78 9A BC DE F0 11 22 33
+44 55 66 77
+```
+
+16 bytes per line. The API re-normalizes whatever hex you send into exactly this
+spacing (`0x12`, `12,40`, one long line — all accepted), so the same file uploaded
+here and imported in the desktop tool produce the same string and a sync sees no
+difference. Content that is not hex is rejected with HTTP 400.
+
+`?download=1` converts it back: the file you get is the image, not the hex. A BIN
+record whose stored content is not valid hex returns HTTP 409 instead of a file.
+
+An `INI` record's `content` is the file's own text, unchanged.
+
+---
+
 ## `eeprom_config` field reference
 
 | Field | Type | Required on create | Notes |
 |---|---|---|---|
 | `index` | int | — | primary key, auto-increment, read-only |
-| `file_format` | string(50) | yes | e.g. `INI`, `BIN` |
+| `file_format` | string(50) | yes | **`INI` or `BIN` only** |
 | `fps` | string(50) | yes | |
 | `file_name` | string(150) | yes | used as the download filename |
 | `MHz` | string(50) | yes | |
 | `isPGL` | bool (0/1) | no | default `true` |
-| `output_format` | string(50) | yes | |
-| `support_mode` | string(50) | yes | |
-| `content` | text | yes | the config file body; only column returned by `download=1` |
+| `output_format` | string(50) | yes | **`AHD` or `YUV422` only** |
+| `support_mode` | string(50) | yes | **`Master` or `Slave` only** |
+| `content` | mediumtext | yes | the config file body — **hex text when `file_format` is `BIN`**; the only column returned by `download=1` |
 | `ext_str1` | string(100) | no | free-form extension field |
 | `ext_str2` | string(255) | no | free-form extension field |
 | `ext_int1` | int | no | free-form extension field |
@@ -340,6 +464,10 @@ Not found → HTTP 404.
   instead (confirmed to work here). If integrating from a different server, try
   Basic Auth first and fall back to the custom headers if you get `Login required`
   with correct credentials.
+- **Three fields have fixed value domains and a BIN `content` is hex text** — see the
+  section above. This is what lets the desktop tool copy rows in without translating
+  anything; a conversion layer on either side would be one more place for a row to come
+  out subtly wrong.
 - **List responses are paginated by default** (`page`/`limit`, max 100) — pass
   `?all=1` to get everything in one response if you don't need paging.
 - **The API key is not equivalent to login credentials.** It stops naive/automated
