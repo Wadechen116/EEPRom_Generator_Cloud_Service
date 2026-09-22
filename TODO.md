@@ -49,10 +49,6 @@ Design agreed, blocked on mail delivery.
   on what it does/doesn't protect), but cheap to rotate: generate a new one
   (`php -r "echo bin2hex(random_bytes(32));"`), update `api/config/config.php`.
   Nothing else needs to change — `assets/js/app.js` fetches it at runtime.
-- **Verify the Account column** — showed blank in an early post-merge
-  screenshot when the `account`/`comment` columns were first added; never
-  explicitly re-confirmed as fixed. Check a few rows show the expected
-  logged-in account name after create/update.
 - **Login brute-force protection** — `api/login.php` has no failed-attempt
   rate limiting or lockout. Low priority for a small internal user base, but a
   known gap if this is ever exposed more broadly.

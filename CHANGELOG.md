@@ -29,7 +29,7 @@ details see `API_DOCUMENTATION.md`; for deployment steps see `README_DEPLOY.md`.
   refuses (409) rather than handing back a `.bin` full of hex text.
 - `account` (server-stamped from the authenticated session/credentials on
   every create/update — never client-settable) and `comment` (free text)
-  columns.
+  columns. Confirmed the Items list displays the correct account per row.
 - `api/update.php` — serves version/download manifests for the desktop apps
   (E2pRom_Generator, SOICamConfig) via `www/project/`, no auth (the apps
   request it with no headers at all).
