@@ -257,6 +257,27 @@ table {
     min-width: 640px;   /* content and the row number in, the database key out */
 }
 
+/* Edit/Download/Delete stay put while the wide content columns scroll past
+   underneath -- sticky relative to .table-wrap (the nearest scrolling ancestor),
+   pinned to its right edge. Needs its own opaque background (matching whatever
+   that cell would have had unstickied) so scrolled-away columns don't show
+   through, and a left-edge shadow so it still reads as "separate" while pinned. */
+.col-actions {
+    position: sticky;
+    right: 0;
+    z-index: 1;
+    box-shadow: -6px 0 6px -6px rgba(0, 0, 0, 0.25);
+}
+
+td.col-actions {
+    background: var(--color-bg);
+}
+
+th.col-actions {
+    background: var(--color-th-light);
+    z-index: 2; /* above the sticky body cells while the header itself is also sticky-scrolled */
+}
+
 th, td {
     text-align: left;
     padding: 0.65rem 0.6rem;
@@ -318,6 +339,37 @@ td.empty {
 }
 
 td.empty.error { color: var(--color-danger); }
+
+/* Page switcher: only rendered (by app.js) once the filtered list has more
+   than PAGE_SIZE rows. */
+.pagination {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.4rem;
+    margin-top: 1rem;
+}
+
+.page-btn {
+    min-width: 2.2rem;
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--color-border);
+    background: var(--color-bg);
+    color: var(--color-text);
+    border-radius: 6px;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.85rem;
+}
+
+.page-btn:hover { border-color: var(--color-primary); }
+
+.page-btn.active {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: #fff;
+    font-weight: 600;
+}
 
 .badge {
     display: inline-block;

@@ -85,9 +85,14 @@ CREATE TABLE IF NOT EXISTS users (
     name          VARCHAR(100) NOT NULL UNIQUE,   -- login account name
     password      VARCHAR(255) NULL,              -- legacy/unused, plaintext -- see note above
     password_hash VARCHAR(255) NOT NULL,           -- bcrypt hash, checked by api/login.php
+    email         VARCHAR(255) NULL UNIQUE,       -- optional; not read by any app code yet
     created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Run this against the already-deployed table (it was created manually before
+-- this column existed):
+--   ALTER TABLE users ADD COLUMN email VARCHAR(255) NULL UNIQUE AFTER password_hash;
 
 -- Recommended: create a dedicated DB user for this app with access only to this
 -- database (not root/admin), e.g.:

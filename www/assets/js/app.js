@@ -47,6 +47,7 @@ const els = {
     refreshBtn: document.getElementById("refreshBtn"),
     itemsTotal: document.getElementById("itemsTotal"),
     searchBox: document.getElementById("searchBox"),
+    pagination: document.getElementById("pagination"),
     tagCloud: document.getElementById("tagCloud"),
     toastContainer: document.getElementById("toastContainer"),
 };
@@ -161,11 +162,16 @@ els.logoutBtn.addEventListener("click", async () => {
 
 /* ---------------- Items CRUD ---------------- */
 
+const PAGE_SIZE = 10;
+let filteredItems = [];
+let currentPage = 1;
+
 async function loadItems() {
     els.itemsBody.innerHTML = `<tr><td colspan="13" class="empty">Loading...</td></tr>`;
     try {
-        // ?all=1: the page has no pagination UI, so it needs every row, not just the
-        // API's default first-20 page (see api/eeprom_config.php for the paginated form).
+        // ?all=1: the page has no server-side pagination UI, so it needs every row,
+        // not just the API's default first-20 page (see api/eeprom_config.php for
+        // the paginated form) -- pagination below is purely client-side over this.
         const data = await apiFetch(`${API_BASE}?all=1`);
         currentItems = data.items || [];
         els.itemsTotal.textContent = currentItems.length ? `(${data.total ?? currentItems.length})` : "";
@@ -187,29 +193,58 @@ const SEARCH_FIELDS = ["file_name", "file_format", "fps", "MHz", "output_format"
 
 function applyFilter() {
     const q = els.searchBox.value.trim().toLowerCase();
-    if (!q) {
-        renderItems(currentItems);
-        return;
-    }
-    const filtered = currentItems.filter((item) =>
+    filteredItems = !q ? currentItems : currentItems.filter((item) =>
         SEARCH_FIELDS.some((f) => String(item[f] ?? "").toLowerCase().includes(q))
     );
-    renderItems(filtered);
+    // A changed search result invalidates whatever page we were on.
+    currentPage = 1;
+    renderPage();
 }
 
-function renderItems(items) {
+function renderPage() {
+    const totalPages = Math.max(1, Math.ceil(filteredItems.length / PAGE_SIZE));
+    currentPage = Math.min(Math.max(1, currentPage), totalPages);
+    const start = (currentPage - 1) * PAGE_SIZE;
+    renderItems(filteredItems.slice(start, start + PAGE_SIZE), start);
+    renderPagination(filteredItems.length, totalPages);
+}
+
+function renderPagination(total, totalPages) {
+    // Only shows once there is more than one page -- i.e. once the list has grown
+    // past PAGE_SIZE, per the requirement ("every 10 items, add a page switch").
+    if (total <= PAGE_SIZE) {
+        els.pagination.innerHTML = "";
+        return;
+    }
+    let html = "";
+    for (let p = 1; p <= totalPages; p++) {
+        html += `<button type="button" class="page-btn${p === currentPage ? " active" : ""}" data-page="${p}">${p}</button>`;
+    }
+    els.pagination.innerHTML = html;
+}
+
+els.pagination.addEventListener("click", (e) => {
+    const btn = e.target.closest(".page-btn");
+    if (!btn) return;
+    currentPage = Number(btn.dataset.page);
+    renderPage();
+    els.pagination.scrollIntoView({ block: "nearest" });
+});
+
+function renderItems(items, startIndex = 0) {
     if (!items || items.length === 0) {
         els.itemsBody.innerHTML = `<tr><td colspan="13" class="empty">No items match.</td></tr>`;
         return;
     }
-    // The leading "#" is the row's position in the list, which stays 1..N however
-    // the table is filtered or whatever has been deleted. The database key
-    // (`index`) is not shown -- it is a primary key with gaps in it after a
+    // The leading "#" is the row's position in the (filtered, paginated) list --
+    // startIndex carries the current page's offset so it keeps counting up across
+    // pages (11, 12, 13...) instead of restarting at 1 on every page. The database
+    // key (`index`) is not shown -- it is a primary key with gaps in it after a
     // delete, which reads as a mistake -- but every row action still carries it
     // in data-index, so edit/download/delete address the right record.
     els.itemsBody.innerHTML = items.map((item, position) => `
         <tr>
-            <td class="col-seq">${position + 1}</td>
+            <td class="col-seq">${startIndex + position + 1}</td>
             <td>${escapeHtml(item.file_name)}</td>
             <td class="col-content" title="${escapeHtml(item.content_preview)}">${escapeHtml(item.content_preview)}</td>
             <td class="col-comment" title="${escapeHtml(item.comment)}">${escapeHtml(item.comment)}</td>
@@ -221,7 +256,7 @@ function renderItems(items) {
             <td>${escapeHtml(item.support_mode)}</td>
             <td>${escapeHtml(item.account)}</td>
             <td>${formatDate(item.modify_time)}</td>
-            <td class="row-actions"><div class="row-actions-inner">
+            <td class="row-actions col-actions"><div class="row-actions-inner">
                 <button type="button" class="icon-btn" data-action="edit" data-index="${item.index}" aria-label="Edit" title="Edit">${ICONS.edit}</button>
                 <button type="button" class="icon-btn" data-action="download" data-index="${item.index}" aria-label="Download" title="Download">${ICONS.download}</button>
                 <button type="button" class="icon-btn icon-btn-danger" data-action="delete" data-index="${item.index}" aria-label="Delete" title="Delete">${ICONS.delete}</button>

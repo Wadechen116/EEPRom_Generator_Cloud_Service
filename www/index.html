@@ -9,7 +9,7 @@
      file. Without it, a redeploy can silently not take effect for visitors who
      already loaded the page once -- this bit us twice while debugging the Items
      layout. Keep every ?v= below in sync when you bump one. -->
-<link rel="stylesheet" href="assets/css/style.css?v=3">
+<link rel="stylesheet" href="assets/css/style.css?v=4">
 </head>
 <body>
 
@@ -78,7 +78,7 @@
                                 <th>Support Mode</th>
                                 <th>Account</th>
                                 <th>Modified</th>
-                                <th></th>
+                                <th class="col-actions"></th>
                             </tr>
                         </thead>
                         <tbody id="itemsBody">
@@ -86,6 +86,8 @@
                         </tbody>
                     </table>
                 </div>
+
+                <div class="pagination" id="pagination"></div>
             </section>
 
             <aside class="items-side-rail">
@@ -227,6 +229,6 @@
 <script src="assets/js/vendor/p5.min.js"></script>
 <script src="assets/js/fish.js?v=2"></script>
 <script src="assets/js/tagcloud3d.js?v=2"></script>
-<script src="assets/js/app.js?v=2"></script>
+<script src="assets/js/app.js?v=3"></script>
 </body>
 </html>
