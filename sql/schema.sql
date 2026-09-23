@@ -81,18 +81,24 @@ ALTER TABLE eeprom_config
 -- reads it, and it should be dropped/cleared once you're comfortable doing so:
 --   ALTER TABLE users DROP COLUMN password;
 CREATE TABLE IF NOT EXISTS users (
-    id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    name          VARCHAR(100) NOT NULL UNIQUE,   -- login account name
-    password      VARCHAR(255) NULL,              -- legacy/unused, plaintext -- see note above
-    password_hash VARCHAR(255) NOT NULL,           -- bcrypt hash, checked by api/login.php
-    email         VARCHAR(255) NULL UNIQUE,       -- optional; not read by any app code yet
-    created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    id             INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    name           VARCHAR(100) NOT NULL UNIQUE,   -- login account name
+    password       VARCHAR(255) NULL,              -- legacy/unused, plaintext -- see note above
+    password_hash  VARCHAR(255) NOT NULL,           -- bcrypt hash, checked by api/login.php
+    email          VARCHAR(255) NULL UNIQUE,       -- optional; not read by any app code yet
+    -- Most-recent login/logout only (overwritten every time), not a full
+    -- history -- see api/login.php / api/logout.php.
+    last_login_at  DATETIME NULL DEFAULT NULL,
+    last_logout_at DATETIME NULL DEFAULT NULL,
+    created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Run this against the already-deployed table (it was created manually before
--- this column existed):
+-- these columns existed):
 --   ALTER TABLE users ADD COLUMN email VARCHAR(255) NULL UNIQUE AFTER password_hash;
+--   ALTER TABLE users ADD COLUMN last_login_at  DATETIME NULL DEFAULT NULL AFTER email;
+--   ALTER TABLE users ADD COLUMN last_logout_at DATETIME NULL DEFAULT NULL AFTER last_login_at;
 
 -- Recommended: create a dedicated DB user for this app with access only to this
 -- database (not root/admin), e.g.:

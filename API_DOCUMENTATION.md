@@ -81,8 +81,9 @@ curl https://pend.soinc.com.tw/chamonix/api/public_key.php
 
 Body: `{ "account": "...", "password": "..." }`
 
-On success, starts a session (browser use) and always returns the account name —
-useful for non-browser callers too, as a "did these credentials work" check.
+On success, starts a session (browser use), stamps `users.last_login_at` with the
+current time, and always returns the account name — useful for non-browser callers
+too, as a "did these credentials work" check.
 
 ```bash
 curl -c cookies.txt -H "X-API-Key: <key>" -H "Content-Type: application/json" \
@@ -106,7 +107,7 @@ used to enumerate valid accounts):
 
 ### `POST logout.php`
 
-No body. Clears the session.
+No body. Clears the session and stamps `users.last_logout_at` with the current time.
 
 ```bash
 curl -b cookies.txt -H "X-API-Key: <key>" -X POST https://pend.soinc.com.tw/chamonix/api/logout.php
@@ -140,7 +141,8 @@ Requires API key **and** login (session or per-request credentials, see above).
 #### `GET eeprom_config.php` — list (paginated)
 
 Query params: `page` (default 1), `limit` (default 20, max 100).
-Returns summary columns only (no `content`/`ext_txt*` — see detail view below).
+Returns summary columns plus a `content_preview` (first 200 characters of
+`content`) — not the full `content`, and not `ext_*` — see detail view below.
 
 ```bash
 curl -H "X-Account: alice" -H "X-Password: hunter2" -H "X-API-Key: <key>" \
@@ -162,7 +164,10 @@ curl -H "X-Account: alice" -H "X-Password: hunter2" -H "X-API-Key: <key>" \
         "output_format": "AHD",
         "support_mode": "Master",
         "create_time": "2026-09-17 11:29:25",
-        "modify_time": "2026-09-17 12:33:08"
+        "modify_time": "2026-09-18 13:22:10",
+        "account": "s008",
+        "comment": "production build",
+        "content_preview": "[Sensor]\r\nModel=IMX178\r\nGain=100\r\n..."
       }
     ],
     "page": 1,
@@ -175,18 +180,44 @@ curl -H "X-Account: alice" -H "X-Password: hunter2" -H "X-API-Key: <key>" \
 
 #### `GET eeprom_config.php?all=1` — list (everything, no pagination)
 
+Same columns as the paginated list above (summary + `content_preview`); no
+`page`/`limit`/`total_pages` in the response, just `items` and `total`.
+
 ```bash
 curl -H "X-Account: alice" -H "X-Password: hunter2" -H "X-API-Key: <key>" \
   "https://pend.soinc.com.tw/chamonix/api/eeprom_config.php?all=1"
 ```
 
 ```json
-{ "success": true, "data": { "items": [ /* every row, summary columns */ ], "total": 6 } }
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "index": 1,
+        "file_format": "INI",
+        "fps": "25",
+        "file_name": "sensor_config_25fps_v1.ini",
+        "MHz": "24",
+        "isPGL": 1,
+        "output_format": "AHD",
+        "support_mode": "Master",
+        "create_time": "2026-09-17 11:29:25",
+        "modify_time": "2026-09-18 13:22:10",
+        "account": "s008",
+        "comment": "production build",
+        "content_preview": "[Sensor]\r\nModel=IMX178\r\nGain=100\r\n..."
+      }
+    ],
+    "total": 15
+  }
+}
 ```
 
 #### `GET eeprom_config.php?index=N` — single record (full detail)
 
-Includes `content` and all `ext_*` columns.
+Everything from the list view (including `account`/`comment`, but this time
+without `content_preview`) plus the full `content` and all `ext_*` columns.
 
 ```bash
 curl -H "X-Account: alice" -H "X-Password: hunter2" -H "X-API-Key: <key>" \
@@ -206,7 +237,9 @@ curl -H "X-Account: alice" -H "X-Password: hunter2" -H "X-API-Key: <key>" \
     "output_format": "AHD",
     "support_mode": "Master",
     "create_time": "2026-09-17 11:29:25",
-    "modify_time": "2026-09-17 12:33:08",
+    "modify_time": "2026-09-18 13:22:10",
+    "account": "s008",
+    "comment": "production build",
     "content": "[Sensor]\r\nModel=IMX178\r\nGain=100",
     "ext_str1": null,
     "ext_str2": null,
@@ -236,8 +269,10 @@ curl -H "X-Account: alice" -H "X-Password: hunter2" -H "X-API-Key: <key>" \
 #### `POST eeprom_config.php` — create
 
 Body (JSON): required `file_format`, `fps`, `file_name`, `MHz`, `output_format`,
-`support_mode`, `content`; optional `isPGL` (bool, default true), `ext_str1`,
-`ext_str2`, `ext_int1`, `ext_txt1`–`ext_txt5`.
+`support_mode`, `content`; optional `isPGL` (bool, default true), `comment`,
+`ext_str1`, `ext_str2`, `ext_int1`, `ext_txt1`–`ext_txt5`. `account` is not
+accepted here — the server stamps it from whoever is authenticated, ignoring
+anything sent under that name (see field reference below).
 
 ```bash
 curl -H "X-Account: alice" -H "X-Password: hunter2" -H "X-API-Key: <key>" \
@@ -431,6 +466,8 @@ An `INI` record's `content` is the file's own text, unchanged.
 | `output_format` | string(50) | yes | **`AHD` or `YUV422` only** |
 | `support_mode` | string(50) | yes | **`Master` or `Slave` only** |
 | `content` | mediumtext | yes | the config file body — **hex text when `file_format` is `BIN`**; the only column returned by `download=1` |
+| `account` | string(100) | — | **read-only**: stamped server-side from the authenticated session/credentials on every create/update; sending it in a request body has no effect |
+| `comment` | text | no | free text — what this version is for (production/sample/test/...) |
 | `ext_str1` | string(100) | no | free-form extension field |
 | `ext_str2` | string(255) | no | free-form extension field |
 | `ext_int1` | int | no | free-form extension field |

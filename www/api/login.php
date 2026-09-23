@@ -3,6 +3,7 @@
  * POST login.php  { "account": "...", "password": "..." }
  * On success, starts a PHP session (cookie) the browser will send on subsequent
  * requests; api/eeprom_config.php requires this session via SessionAuth::requireLogin().
+ * Also stamps users.last_login_at -- see sql/schema.sql.
  */
 
 require __DIR__ . '/bootstrap.php';
@@ -39,4 +40,8 @@ if (!$user || !password_verify($password, $user['password_hash'])) {
 }
 
 SessionAuth::login($user['account']);
+
+$pdo->prepare('UPDATE users SET last_login_at = NOW() WHERE name = :account')
+    ->execute([':account' => $user['account']]);
+
 Response::json(['account' => $user['account']]);
