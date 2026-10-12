@@ -6,24 +6,43 @@ usage see `API_DOCUMENTATION.md`, for deployment steps see `README_DEPLOY.md`.
 ## In progress
 
 ### Forgot-password flow
-Design agreed, blocked on mail delivery.
+**Code complete and tested; not live yet.** What's left is deploying it and the mail
+relay access below. Everything is written so that deploying it *before* the relay is
+open is harmless: with `mail.enabled` false (or the `mail` block missing) a request is
+accepted and quietly ignored — nothing stored, nothing sent.
 
-- **Design**: token-based reset. A new `password_resets` table (user_id,
-  `token_hash` = sha256 of a random 32-byte token, `expires_at`, `used_at`).
-  The emailed link carries the raw token; only its hash is ever stored. On
-  reset, only `password_hash` is updated — **not** the legacy `password`
-  column (writing a plaintext password back there was explicitly rejected,
-  see decision log below).
+- **Built**: "Forgot password?" on the login screen → `api/forgot_password.php` →
+  emailed link `<app_url>/#reset=<token>` → reset form → `api/reset_password.php`.
+  Token-based: `password_resets` table (`token_hash` = sha256 of a random 32-byte token,
+  `expires_at`, `used_at`); the raw token only ever exists in the email. On reset, only
+  `password_hash` is updated — **not** the legacy `password` column (writing a plaintext
+  password back there was explicitly rejected, see decision log below). Details in
+  `API_DOCUMENTATION.md`; how to bring it live in `README_DEPLOY.md`.
 - **Blocked on**: SMTP relay access. Tested via a one-off `api/_diag_smtp.php`
   (already deleted, not part of the repo): connects fine to `ms.soinc.com.tw`,
   but `RCPT TO` is rejected —
   `554 5.7.1 <pend.soinc.com.tw[192.168.20.20]>: Client host rejected: Access denied`.
-  The WebPage server's IP is not in the mail server's allowed-relay list.
+  The WebPage server's IP is not in the mail server's allowed-relay list. The app now
+  logs exactly this line (`[Mailer] ... [relay replied: 554 5.7.1 ...]`) whenever the
+  relay refuses, so it is visible in the server's PHP error log without a diag script.
 - **Next step** (owned by IT / the mail server admin, not the app developer —
   see decision log): either (a) allow-list `192.168.20.20` for unauthenticated
   relay, or (b) issue an authenticated SMTP service account, with the
   credentials filled directly into `api/config/config.php` by whoever manages
-  the mail server.
+  the mail server (the `mail` block; template in `config.sample.php`).
+- **To confirm with IT while doing that**: the sender address the relay accepts
+  (`mail.from` — may have to be in its own domain), and whether it needs TLS (587/465,
+  which also needs PHP's `openssl` extension on the web server) or plain port 25.
+- **Then verify on the live server**, once: run `sql/migrate_2026-10-06_password_resets.sql`,
+  set `mail.enabled` to `true`, request a reset for an account that has an email, open the
+  link from the mail, set a password, log in with it. (All of this has been run against a
+  local MariaDB + a stand-in mail relay; the one thing that has never been run is the real
+  relay, because it refuses this server.)
+- **Known limits, accepted for now**: users need `users.email` filled in (no UI for that —
+  phpMyAdmin / `tools/create_user.php`); a reset does not end login sessions that are already
+  open in other browsers (PHP sessions can't be revoked per user); no "your password was
+  changed" notification email; `password_resets` rows are never purged (see the housekeeping
+  query at the end of the migration file).
 - **Decision log**:
   - Reset should update only `password_hash`, never the plaintext `password`
     column — confirmed with the project owner; re-introducing a stored

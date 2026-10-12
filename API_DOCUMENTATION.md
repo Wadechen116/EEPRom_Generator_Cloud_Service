@@ -16,8 +16,11 @@ All responses are JSON with the same envelope:
 
 ## Authentication
 
-Every endpoint except `public_key.php` and `update.php` requires **two independent
-layers**, both must pass:
+Every endpoint except `public_key.php` and `update.php` requires the API key.
+The data endpoint (`eeprom_config.php`) additionally requires a login — **two
+independent layers**, both must pass. `forgot_password.php` and `reset_password.php`
+need the API key only (there is no logged-in user in a password reset; the emailed
+one-time token is the credential).
 
 ### 1. API Key (all endpoints)
 
@@ -131,6 +134,96 @@ curl -b cookies.txt -H "X-API-Key: <key>" https://pend.soinc.com.tw/chamonix/api
 ```json
 { "success": true, "data": { "loggedIn": true, "account": "alice" } }
 ```
+
+---
+
+### `POST forgot_password.php`
+
+Starts a password reset: emails the user a one-time link. API key only.
+
+Body: `{ "identifier": "<account name or email address>" }`
+
+```bash
+curl -H "X-API-Key: <key>" -H "Content-Type: application/json" \
+  -d '{"identifier":"alice"}' \
+  https://pend.soinc.com.tw/chamonix/api/forgot_password.php
+```
+
+```json
+{ "success": true, "data": { "requested": true, "message": "If that account exists and has an email address on file, a reset link has been sent." } }
+```
+
+**The answer is the same 200 for every well-formed request** — account unknown, account
+without an email address, throttled, mail switched off, mail relay refused: all look
+identical, in body *and* in response time (the reply is sent first; the mail is sent after
+the connection closes). The API therefore can't be used to find out which account names
+exist, the same rule `login.php` follows. The only errors are `400` (empty or over-long
+`identifier`, bad JSON), `401` (API key) and `405`.
+
+What happens after the reply, silently, in this order:
+
+1. Mail not enabled in `config.php` → nothing. (Nothing is stored either.)
+2. No account matches the name/email, or it has no valid email address → nothing.
+3. Throttled → nothing: at most one request per account per 60 s, 5 per account per
+   hour, 20 per client IP per hour.
+4. A random 32-byte token is created; **only its SHA-256 is stored**
+   (`password_resets.token_hash`). Older unused links of that account are retired — only
+   the newest link works.
+5. The mail is sent through the corporate relay (PHPMailer). If that fails the stored row
+   is deleted again and the reason — including the relay's own status line, e.g.
+   `554 5.7.1 ... Client host rejected: Access denied` — is written to the server's PHP
+   error log.
+
+The link in the mail is `<app_url>/#reset=<64 hex chars>`. The token is in the URL
+**fragment**, which browsers never send to a server, so it stays out of Apache access
+logs and `Referer` headers. `app_url` comes from `config.php`, never from the request.
+A link works once and expires after `mail.reset_ttl_minutes` (default 30).
+
+---
+
+### `POST reset_password.php`
+
+Second half of the reset. API key only; the token from the emailed link is the credential.
+
+**Check** — is this link still usable? (the page does this before showing the form)
+
+```bash
+curl -H "X-API-Key: <key>" -H "Content-Type: application/json" \
+  -d '{"token":"<64 hex chars>"}' \
+  https://pend.soinc.com.tw/chamonix/api/reset_password.php
+```
+```json
+{ "success": true, "data": { "valid": true } }
+```
+
+**Reset** — set the new password:
+
+```bash
+curl -H "X-API-Key: <key>" -H "Content-Type: application/json" \
+  -d '{"token":"<64 hex chars>","password":"<new password>"}' \
+  https://pend.soinc.com.tw/chamonix/api/reset_password.php
+```
+```json
+{ "success": true, "data": { "reset": true } }
+```
+
+It does not log the user in; they sign in with the new password.
+
+| Case | Answer |
+|---|---|
+| Token malformed, unknown, expired, already used, superseded by a newer link, or its account was deleted | `400` `"This reset link is invalid or has expired. Request a new one."` — one message for all of them, so the endpoint says nothing about *why* |
+| Password shorter than 8 characters | `400` |
+| Password longer than 72 bytes | `400` (bcrypt ignores everything past 72 bytes; refused rather than silently truncated) |
+| Password only whitespace / not a string | `400` |
+
+Only `users.password_hash` is written — never the legacy plaintext `password` column. A
+successful reset also retires every other unused link of that account. The token is
+claimed with one atomic `UPDATE … WHERE used_at IS NULL`, so submitting the same link
+twice at the same instant produces exactly one success.
+
+**Not covered:** a login session that is already open (in any browser) is not ended by a
+reset — PHP sessions can't be listed or revoked per user. The web page ends *its own* session
+after a reset; other sessions lapse when their browser closes.
 
 ---
 
@@ -483,7 +576,7 @@ An `INI` record's `content` is the file's own text, unchanged.
 |---|---|
 | 200 | success (GET/PUT/DELETE) |
 | 201 | created (POST create) |
-| 400 | bad request — missing/invalid field, invalid `index` |
+| 400 | bad request — missing/invalid field, invalid `index`; for `reset_password.php` also an invalid/expired link or a rejected new password |
 | 401 | API key and/or login check failed |
 | 404 | record not found |
 | 405 | method not allowed |

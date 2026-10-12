@@ -33,10 +33,23 @@ details see `API_DOCUMENTATION.md`; for deployment steps see `README_DEPLOY.md`.
 - `api/update.php` — serves version/download manifests for the desktop apps
   (E2pRom_Generator, SOICamConfig) via `www/project/`, no auth (the apps
   request it with no headers at all).
+- Forgot-password endpoints (*code complete, goes live once deployed and the mail
+  relay is open — see `TODO.md`*): `api/forgot_password.php` emails a one-time link,
+  `api/reset_password.php` checks it / sets the new password. One generic answer to
+  every request (no account enumeration, also not by response time — the reply is sent
+  before the mail); throttled per account and per IP; only the SHA-256 of the token is
+  stored; one atomic claim per link; only `password_hash` is written. Mail goes through
+  the corporate relay with a vendored PHPMailer 6.10.0 (`api/lib/phpmailer/`), driven by
+  the `mail` block of `config.php`; the relay's own refusal text is logged for the mail
+  admin. New table `password_resets` (`sql/migrate_2026-10-06_password_resets.sql`).
 
 ## Frontend
 
 - Login screen (session-based), logout, session-status check on page load.
+- "Forgot password?" on the login screen → request panel → (from the emailed link,
+  `#reset=<token>` in the URL fragment so it stays out of server logs, removed from the
+  address bar once read) reset panel. The page checks the link before showing the form,
+  ends its own session after a reset, and handles a link opened while already logged in.
 - Items list: search box (client-side, instant), 3D rotating tag cloud
   (auto-generated from file_format/support_mode/output_format/fps, click to
   filter), client-side pagination (10/page, switcher only once needed).

@@ -32,6 +32,8 @@ endpoint are in **[API_DOCUMENTATION.md](API_DOCUMENTATION.md)**. Summary:
 | `eeprom_config.php` | POST | Create a record | API key + login |
 | `eeprom_config.php?index=N&_method=PUT` | POST | Update a record | API key + login |
 | `eeprom_config.php?index=N&_method=DELETE` | POST | Delete a record | API key + login |
+| `forgot_password.php` | POST | Email a one-time password-reset link | API key |
+| `reset_password.php` | POST | Check a reset link / set the new password | API key (+ emailed token) |
 
 "Login" means either a browser session (`login.php` + cookie) or per-request
 `X-Account`/`X-Password` headers — see API_DOCUMENTATION.md for both.
@@ -69,6 +71,18 @@ real bcrypt hash (`$2y$...`, ~60 chars) — `password_verify()` will reject it. 
 left over from manual creation; `api/login.php` never reads it, so once you're
 comfortable, drop it: `ALTER TABLE users DROP COLUMN password;`
 
+### Forgot-password table and email addresses
+
+The "Forgot password?" flow stores its one-time links in a new table, `password_resets`.
+Run **`sql/migrate_2026-10-06_password_resets.sql`** once in phpMyAdmin's SQL tab (safe to
+re-run). It holds only the SHA-256 of each emailed token, never the token itself.
+
+A user can only reset a password if their `users.email` is filled in — the page can't
+tell anyone whether an account exists, so an account without an email simply never gets a
+mail. Set it with the same tool as above (`php tools/create_user.php <name> <password> <email>`
+prints an `UPDATE ... SET password_hash = ..., email = ...`), or directly in phpMyAdmin:
+`UPDATE users SET email = 'someone@soinc.com.tw' WHERE name = 'someone';`
+
 ## 2. Fill in real config on the server (never in chat, never in source control)
 
 1. Copy `www/api/config/config.sample.php` to `www/api/config/config.php`.
@@ -87,6 +101,41 @@ intentionally unauthenticated and why that's an acceptable trade-off.
 `config.php` is intentionally left out of this package (only the `.sample.php`
 template is here) so there is nothing containing real credentials to accidentally
 ship, zip, or paste anywhere.
+
+### Forgot-password email (`app_url` + `mail` in `config.php`)
+
+An existing `config.php` keeps working as-is: without the two new blocks, "Forgot
+password?" requests are accepted and quietly ignored (nothing stored, nothing sent) — see
+`config.sample.php` for the blocks to add:
+
+| Key | What to put |
+|---|---|
+| `app_url` | The address users type in the browser, with any sub-path, no trailing slash (`https://pend.soinc.com.tw/chamonix`). The reset link in the email is built from it. It is configured rather than read from the request on purpose: a request's `Host` header is chosen by whoever sends it. |
+| `mail.enabled` | `false` until the mail relay accepts mail from this server, then `true`. |
+| `mail.host` / `port` / `encryption` | The corporate relay (`ms.soinc.com.tw`, port 25 for an IP-allow-listed relay; `'tls'` for STARTTLS on 587 or `'ssl'` for 465 — both need PHP's `openssl` extension). |
+| `mail.username` / `password` | Leave both empty for an allow-listed relay; fill both for an authenticated service account. **Filled in on the server by whoever manages the mail server** — they never pass through the app developer or the repo. |
+| `mail.from` / `from_name` | Sender address. The relay may only accept a sender in its own domain. |
+| `mail.timeout` / `reset_ttl_minutes` | Seconds to wait on the relay (default 10) / how long a link works (default 30, allowed 5–1440). |
+
+The mail library is PHPMailer 6.10.0, vendored under `api/lib/phpmailer/` (plain PHP, no
+composer, nothing to install on the server — see `VENDORED.txt` there for source,
+licence and checksums). It is part of the `www/` package like everything else.
+
+**Order to bring it live** (each step is safe on its own; nothing sends mail until the last):
+
+1. Run `sql/migrate_2026-10-06_password_resets.sql` (phpMyAdmin).
+2. Upload `www/` (new/changed: `index.html`, `assets/css/style.css`, `assets/js/app.js`,
+   `api/forgot_password.php`, `api/reset_password.php`, `api/lib/Mailer.php`,
+   `api/lib/Response.php`, `api/lib/phpmailer/`).
+3. Mail admin: allow this server's IP (`192.168.20.20`) on the relay — or issue a service
+   account — and fill the `mail` block in the server's `config.php`; set `app_url`.
+4. Set `mail.enabled` to `true`. Request a reset for an account that has an email, and
+   open the link from the mail.
+5. If no mail arrives, the reason is in the server's PHP error log, one line per failure
+   starting `[Mailer]`, including the relay's own reply (e.g.
+   `[relay replied: 554 5.7.1 ... Client host rejected: Access denied]` = the server is
+   still not allow-listed). `[reset] request ignored: ...` lines say why a request was
+   dropped (mail disabled, no such account/email, throttled).
 
 ## 3. Package and deploy
 
