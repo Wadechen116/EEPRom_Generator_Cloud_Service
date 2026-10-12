@@ -139,17 +139,27 @@ licence and checksums). It is part of the `www/` package like everything else.
 
 ## 3. Package and deploy
 
-Zip the **contents** of `www/` (not the `www` folder itself) and upload/extract
-into the remote Apache `www` folder:
+Pack the **contents** of `www/` (not the `www` folder itself) and upload/extract
+into the remote Apache `www` folder. The repo's package is `deploy.tar.gz` (it is in
+`.gitignore`: a build artifact, regenerate it every time rather than reusing an old one):
 
 ```powershell
-# from D:\swork\WebPage
+# from D:\swork\WebPage  (tar.exe ships with Windows 10 and later)
+tar -czf deploy.tar.gz -C www .
+```
+
+Extract it directly into the remote `www` folder (`tar -xzf deploy.tar.gz`). If the
+upload tool you use only takes zip files, this does the same job:
+
+```powershell
 Compress-Archive -Path www\* -DestinationPath deploy.zip -Force
 ```
 
-Extract `deploy.zip` directly into the remote `www` folder. Final layout on the
-server should be `www/index.html`, `www/api/...`, `www/assets/...` etc. at the web
-root (or whatever sub-path the remote www folder is already served from).
+Either way the final layout on the server should be `www/index.html`, `www/api/...`,
+`www/assets/...` etc. at the web root (or whatever sub-path the remote www folder is
+already served from). Neither package should contain `api/config/config.php` (it is
+the server's own file; the repo only has `config.sample.php`) -- if you pack from a
+checkout that has a local `config.php`, delete it from the package before uploading.
 
 ## 4. Verify
 
