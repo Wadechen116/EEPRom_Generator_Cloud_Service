@@ -29,6 +29,20 @@ const els = {
     loginAccount: document.getElementById("loginAccount"),
     loginPassword: document.getElementById("loginPassword"),
     loginMessage: document.getElementById("loginMessage"),
+    forgotLink: document.getElementById("forgotLink"),
+    forgotPanel: document.getElementById("forgotPanel"),
+    forgotForm: document.getElementById("forgotForm"),
+    forgotIdentifier: document.getElementById("forgotIdentifier"),
+    forgotBtn: document.getElementById("forgotBtn"),
+    forgotBackBtn: document.getElementById("forgotBackBtn"),
+    forgotMessage: document.getElementById("forgotMessage"),
+    resetPanel: document.getElementById("resetPanel"),
+    resetForm: document.getElementById("resetForm"),
+    resetPassword: document.getElementById("resetPassword"),
+    resetPassword2: document.getElementById("resetPassword2"),
+    resetBtn: document.getElementById("resetBtn"),
+    resetBackBtn: document.getElementById("resetBackBtn"),
+    resetMessage: document.getElementById("resetMessage"),
     appContent: document.getElementById("appContent"),
 
     itemDialog: document.getElementById("itemDialog"),
@@ -103,18 +117,34 @@ function formatDate(value) {
 
 /* ---------------- Auth / session ---------------- */
 
+function setMessage(el, text, isError) {
+    el.textContent = text;
+    el.classList.toggle("error", Boolean(isError));
+}
+
+/** Shows exactly one of the three signed-out panels: "login" | "forgot" | "reset". */
+function showAuthView(view) {
+    els.loginPanel.hidden = view !== "login";
+    els.forgotPanel.hidden = view !== "forgot";
+    els.resetPanel.hidden = view !== "reset";
+    const focusTarget = { login: els.loginAccount, forgot: els.forgotIdentifier, reset: els.resetPassword }[view];
+    if (focusTarget) focusTarget.focus();
+}
+
 function showLoggedIn(account) {
     els.userAccountLabel.textContent = account;
     els.userBox.hidden = false;
     els.loginPanel.hidden = true;
+    els.forgotPanel.hidden = true;
+    els.resetPanel.hidden = true;
     els.appContent.hidden = false;
 }
 
 function showLoggedOut() {
     els.userBox.hidden = true;
-    els.loginPanel.hidden = false;
     els.appContent.hidden = true;
     els.loginPassword.value = "";
+    showAuthView("login");
 }
 
 async function checkSession() {
@@ -158,6 +188,119 @@ els.logoutBtn.addEventListener("click", async () => {
         // even if the request fails, drop the client-side view back to the login screen
     }
     showLoggedOut();
+});
+
+/* ---------------- Forgot / reset password ----------------
+ * Step 1 (forgotForm): ask api/forgot_password.php to email a link. The reply is the same whether or not the
+ *   account exists, so the message shown here must not claim more than "if it exists, a link was sent".
+ * Step 2 (resetForm): the emailed link is  index.html#reset=<token>. The token lives in the URL FRAGMENT so it
+ *   never reaches server logs or the Referer header; it is read once and then removed from the address bar.
+ */
+
+let resetToken = null;
+const RESET_HASH = /^#reset=(.*)$/;
+
+/** Returns the token from a #reset=... fragment (and removes it from the address bar), or null if there is none. */
+function takeResetTokenFromUrl() {
+    const m = RESET_HASH.exec(window.location.hash);
+    if (!m) return null;
+    history.replaceState(null, "", window.location.pathname + window.location.search);
+    return m[1];
+}
+
+/** Checks the link with the server first, so nobody types a new password into a link that is already dead. */
+async function openResetFromLink(token) {
+    try {
+        await apiFetch("api/reset_password.php", { method: "POST", body: JSON.stringify({ token }) });
+    } catch (err) {
+        resetToken = null;
+        await checkSession();   // restore the true state: still logged in, or the login screen
+        if (!els.loginPanel.hidden) {
+            setMessage(els.loginMessage, err.message, true);
+        } else {
+            showToast(err.message, true);
+        }
+        return;
+    }
+    resetToken = token;
+    els.userBox.hidden = true;
+    els.appContent.hidden = true;
+    setMessage(els.resetMessage, "");
+    showAuthView("reset");
+}
+
+els.forgotLink.addEventListener("click", () => {
+    setMessage(els.forgotMessage, "");
+    els.forgotIdentifier.value = els.loginAccount.value.trim();   // saves retyping what they already entered
+    showAuthView("forgot");
+});
+
+els.forgotBackBtn.addEventListener("click", () => showAuthView("login"));
+
+els.forgotForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    setMessage(els.forgotMessage, "");
+    els.forgotBtn.disabled = true;
+    try {
+        const data = await apiFetch("api/forgot_password.php", {
+            method: "POST",
+            body: JSON.stringify({ identifier: els.forgotIdentifier.value.trim() }),
+        });
+        setMessage(els.forgotMessage, data.message, false);
+        // The server rate-limits anyway; keeping the button off briefly just stops accidental double sends.
+        setTimeout(() => { els.forgotBtn.disabled = false; }, 5000);
+    } catch (err) {
+        setMessage(els.forgotMessage, err.message, true);
+        els.forgotBtn.disabled = false;
+    }
+});
+
+function leaveResetView() {
+    resetToken = null;
+    els.resetPassword.value = "";
+    els.resetPassword2.value = "";
+    setMessage(els.resetMessage, "");
+}
+
+els.resetBackBtn.addEventListener("click", async () => {
+    leaveResetView();
+    await checkSession();
+});
+
+els.resetForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    setMessage(els.resetMessage, "");
+    if (els.resetPassword.value !== els.resetPassword2.value) {
+        setMessage(els.resetMessage, "The two passwords do not match.", true);
+        return;
+    }
+    els.resetBtn.disabled = true;
+    try {
+        await apiFetch("api/reset_password.php", {
+            method: "POST",
+            body: JSON.stringify({ token: resetToken, password: els.resetPassword.value }),
+        });
+    } catch (err) {
+        setMessage(els.resetMessage, err.message, true);
+        els.resetBtn.disabled = false;
+        return;
+    }
+    els.resetBtn.disabled = false;
+    leaveResetView();
+    // This browser may still hold a login session from before; end it so the new password is what gets used.
+    try {
+        await apiFetch("api/logout.php", { method: "POST" });
+    } catch (err) {
+        // no session to end, or the request failed: either way the login screen is the right place to land
+    }
+    showLoggedOut();
+    setMessage(els.loginMessage, "Password changed. Log in with your new password.", false);
+});
+
+window.addEventListener("hashchange", () => {
+    if (API_KEY === null) return;   // page is still starting up; init() handles the fragment itself
+    const token = takeResetTokenFromUrl();
+    if (token !== null) openResetFromLink(token);
 });
 
 /* ---------------- Items CRUD ---------------- */
@@ -620,7 +763,14 @@ async function init() {
     document.getElementById("year").textContent = new Date().getFullYear();
     try {
         await loadApiKey();
-        await checkSession();
+        // Arriving from the emailed link (index.html#reset=<token>) goes to the reset form; anything else
+        // is a normal page load.
+        const token = takeResetTokenFromUrl();
+        if (token !== null) {
+            await openResetFromLink(token);
+        } else {
+            await checkSession();
+        }
     } catch (err) {
         showLoggedOut();
         els.loginMessage.textContent = `Failed to initialize: ${err.message}`;

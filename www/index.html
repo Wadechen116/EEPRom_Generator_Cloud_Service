@@ -9,7 +9,7 @@
      file. Without it, a redeploy can silently not take effect for visitors who
      already loaded the page once -- this bit us twice while debugging the Items
      layout. Keep every ?v= below in sync when you bump one. -->
-<link rel="stylesheet" href="assets/css/style.css?v=4">
+<link rel="stylesheet" href="assets/css/style.css?v=5">
 </head>
 <body>
 
@@ -44,7 +44,51 @@
                 <button type="submit" class="btn" id="loginBtn">Login</button>
             </div>
         </form>
+        <p class="form-links">
+            <button type="button" class="link-btn" id="forgotLink">Forgot password?</button>
+        </p>
         <p class="form-message" id="loginMessage" role="status"></p>
+    </section>
+
+    <!-- Forgot password, step 1: ask for the reset link. The reply is deliberately the same whether or
+         not the account exists (api/forgot_password.php), so this page can't be used to find account names. -->
+    <section class="panel auth-panel" id="forgotPanel" hidden>
+        <h2>Forgot password</h2>
+        <p class="panel-note">Enter your account name or the email address on your account. If it matches an
+            account with an email address on file, we send a link to choose a new password.</p>
+        <form id="forgotForm">
+            <div class="field">
+                <label for="forgotIdentifier">Account name or email</label>
+                <input type="text" id="forgotIdentifier" required maxlength="255" autocomplete="username">
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn" id="forgotBtn">Send reset link</button>
+                <button type="button" class="btn btn-outline" id="forgotBackBtn">Back to login</button>
+            </div>
+        </form>
+        <p class="form-message" id="forgotMessage" role="status"></p>
+    </section>
+
+    <!-- Forgot password, step 2: opened from the emailed link (index.html#reset=<token>). The token is in the
+         URL fragment so it never reaches server logs or the Referer header; app.js reads it, then removes it
+         from the address bar. -->
+    <section class="panel auth-panel" id="resetPanel" hidden>
+        <h2>Choose a new password</h2>
+        <form id="resetForm">
+            <div class="field">
+                <label for="resetPassword">New password <span class="hint">8&ndash;72 characters</span></label>
+                <input type="password" id="resetPassword" required minlength="8" maxlength="72" autocomplete="new-password">
+            </div>
+            <div class="field">
+                <label for="resetPassword2">Repeat new password</label>
+                <input type="password" id="resetPassword2" required minlength="8" maxlength="72" autocomplete="new-password">
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn" id="resetBtn">Set new password</button>
+                <button type="button" class="btn btn-outline" id="resetBackBtn">Cancel</button>
+            </div>
+        </form>
+        <p class="form-message" id="resetMessage" role="status"></p>
     </section>
 
     <div id="appContent" hidden>
@@ -229,6 +273,6 @@
 <script src="assets/js/vendor/p5.min.js"></script>
 <script src="assets/js/fish.js?v=2"></script>
 <script src="assets/js/tagcloud3d.js?v=2"></script>
-<script src="assets/js/app.js?v=3"></script>
+<script src="assets/js/app.js?v=4"></script>
 </body>
 </html>
