@@ -57,6 +57,8 @@ details see `API_DOCUMENTATION.md`; for deployment steps see `README_DEPLOY.md`.
   pre-fills fields using the same register-pair analysis the desktop tool uses
   (fps/isPGL/output_format/support_mode), leaving anything it can't determine
   blank rather than guessing.
+- `[hidden] { display: none !important }`: an element with the `hidden` attribute now stays hidden even when a class gives it a
+  `display` (the Logout button showed on the login screen because `.user-box` is `display:flex`).
 - Icon buttons (inline SVG, no icon-font dependency) for edit/download/delete;
   the actions column is `position: sticky` so it stays visible while the wide
   content columns scroll underneath it.

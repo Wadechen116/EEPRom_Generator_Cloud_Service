@@ -16,6 +16,11 @@
 
 * { box-sizing: border-box; }
 
+/* The `hidden` attribute only sets display:none at the lowest priority, so any class that sets
+   its own `display` (.user-box is flex) silently overrides it and the element shows anyway --
+   that is how the Logout button appeared on the login screen. Make `hidden` always win. */
+[hidden] { display: none !important; }
+
 body {
     margin: 0;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
