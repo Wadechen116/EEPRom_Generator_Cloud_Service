@@ -1,0 +1,17 @@
+PHPMailer 6.10.0 -- vendored, unmodified.
+Source:   https://github.com/PHPMailer/PHPMailer/releases/tag/v6.10.0  (tag archive, downloaded 2026-10-06)
+Licence:  GNU LGPL 2.1 (see LICENSE) -- used as an unmodified library, so no source obligations beyond
+          shipping this licence text with it.
+Needs:    PHP >= 5.5. TLS (587 / STARTTLS / SMTPS) additionally needs PHP's openssl extension; plain port 25 does not.
+
+Only the three files the app uses are included (src/PHPMailer.php, src/SMTP.php, src/Exception.php); the
+language/ folder is left out, PHPMailer falls back to its built-in English messages.
+
+SHA-256 (verify with sha256sum before trusting a re-download or an upgrade):
+  tag archive v6.10.0.tar.gz  90753547fd0bb60e76f822a42f07ddd69dce6a11db96346acdde76235f7e2f00
+  PHPMailer.php               835a15b6067083d7c92ea245c9ffab3ef23a8ac16bfe14a61e953741a661b9e2
+  SMTP.php                    9bc105018f6ef2576c2c4a246a46fc41ada546111fc8fb1ffce86421af35e78c
+  Exception.php               22ab858ae438d98f58f41f38ad2191d1b0d59570aebea0463a7948cfae1021b7
+
+Upgrade: replace the three files with the same files from a newer 6.x tag, update this note, run the
+password-reset flow once. Security advisories: https://github.com/PHPMailer/PHPMailer/security

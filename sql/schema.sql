@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS users (
     name           VARCHAR(100) NOT NULL UNIQUE,   -- login account name
     password       VARCHAR(255) NULL,              -- legacy/unused, plaintext -- see note above
     password_hash  VARCHAR(255) NOT NULL,           -- bcrypt hash, checked by api/login.php
-    email          VARCHAR(255) NULL UNIQUE,       -- optional; not read by any app code yet
+    email          VARCHAR(255) NULL UNIQUE,       -- optional; api/forgot_password.php mails the reset link here (no email = no reset)
     -- Most-recent login/logout only (overwritten every time), not a full
     -- history -- see api/login.php / api/logout.php.
     last_login_at  DATETIME NULL DEFAULT NULL,
@@ -99,6 +99,24 @@ CREATE TABLE IF NOT EXISTS users (
 --   ALTER TABLE users ADD COLUMN email VARCHAR(255) NULL UNIQUE AFTER password_hash;
 --   ALTER TABLE users ADD COLUMN last_login_at  DATETIME NULL DEFAULT NULL AFTER email;
 --   ALTER TABLE users ADD COLUMN last_logout_at DATETIME NULL DEFAULT NULL AFTER last_login_at;
+
+-- Forgot-password links (api/forgot_password.php + api/reset_password.php): one row per
+-- emailed link, holding only the sha256 of the token. Same definition as
+-- sql/migrate_2026-10-06_password_resets.sql, which has the full notes (UTC timestamps,
+-- why there is no FOREIGN KEY) and is what to run on the already-deployed database.
+CREATE TABLE IF NOT EXISTS password_resets (
+    id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_id       INT UNSIGNED NOT NULL,
+    token_hash    CHAR(64)     NOT NULL,
+    requested_ip  VARCHAR(45)  NULL DEFAULT NULL,
+    created_at    DATETIME     NOT NULL,
+    expires_at    DATETIME     NOT NULL,
+    used_at       DATETIME     NULL DEFAULT NULL,
+    UNIQUE KEY uq_password_resets_token (token_hash),
+    KEY idx_password_resets_user (user_id, created_at),
+    KEY idx_password_resets_ip (requested_ip, created_at)
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Recommended: create a dedicated DB user for this app with access only to this
 -- database (not root/admin), e.g.:

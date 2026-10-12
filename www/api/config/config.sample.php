@@ -33,4 +33,36 @@ return [
     // Shared secret the frontend/clients must send as the "X-API-Key" header.
     // Generate a real one on the server with:  php -r "echo bin2hex(random_bytes(32));"
     'api_key' => 'REPLACE_WITH_A_LONG_RANDOM_STRING',
+
+    // ---- Forgot-password email (api/forgot_password.php, api/lib/Mailer.php) -------------------
+    //
+    // Public address of THIS site, as users reach it, with any sub-path and no trailing slash. The reset
+    // link in the email is built from it. It is configured, not read from the request, because the Host
+    // header is chosen by whoever sends the request -- and a forged one would put an attacker's address
+    // into a real, signed-looking email.
+    'app_url' => 'https://pend.soinc.com.tw/chamonix',   // CONFIRM: the URL users type in the browser
+
+    // The corporate SMTP relay. Owned by the mail admin: whoever manages the mail server fills this in
+    // directly on the server; the developer never needs to hold these values (see TODO.md).
+    'mail' => [
+        // Stays false until the relay accepts mail from this server. While false, "Forgot password?"
+        // requests are accepted but nothing is stored or sent, so no usable link is ever created.
+        'enabled'    => false,
+
+        'host'       => 'ms.soinc.com.tw',   // CONFIRM with the mail admin
+        'port'       => 25,                  // 25 (relay), 587 (submission + STARTTLS), 465 (implicit TLS)
+        'encryption' => '',                  // '' = none, 'tls' = STARTTLS, 'ssl' = implicit TLS (both need PHP openssl)
+
+        // Leave both empty when the relay allow-lists this server's IP and needs no login
+        // (option (a) in TODO.md). Fill both for an authenticated service account (option (b)).
+        'username'   => '',
+        'password'   => '',
+
+        // Envelope/header sender. The relay may only accept a sender in its own domain -- CONFIRM.
+        'from'       => 'noreply@soinc.com.tw',
+        'from_name'  => 'EEPROM Generator cloud service',
+
+        'timeout'           => 10,   // seconds to wait on the relay before giving up
+        'reset_ttl_minutes' => 30,   // how long an emailed link works (5..1440)
+    ],
 ];
