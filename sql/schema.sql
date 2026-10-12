@@ -23,6 +23,11 @@ CREATE TABLE IF NOT EXISTS eeprom_config (
     account         VARCHAR(100) NULL DEFAULT NULL,
     -- comment: free text, what this version is for (production/sample/test/...).
     comment         TEXT NULL DEFAULT NULL,
+    -- Both were added to the live table by ALTER (see
+    -- sql/migrate_2026-09-21_account_comment.sql), which appends, so there they
+    -- sit at the end. Position is not part of the contract: every query names
+    -- its columns, and the desktop tool matches by column name -- its SQLite
+    -- table appends them too, because SQLite cannot do anything else.
     -- MEDIUMTEXT, not TEXT: a BIN row stores its image as hex text (see the
     -- note below), and 3 characters per byte puts a 64 KB EEPROM image at
     -- ~192 KB -- well past TEXT's 64 KB limit, where MySQL would truncate it.
