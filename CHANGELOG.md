@@ -43,6 +43,37 @@ details see `API_DOCUMENTATION.md`; for deployment steps see `README_DEPLOY.md`.
   the `mail` block of `config.php`; the relay's own refusal text is logged for the mail
   admin. New table `password_resets` (`sql/migrate_2026-10-06_password_resets.sql`).
 
+## Telemetry and monitor dashboard (2026-11-12 / 2026-11-13)
+
+- `api/collect.php` — telemetry endpoint for the desktop applications (no auth; one launch per POST into
+  `telemetry_logs`). Reads `config.php` (no hard-coded DB credentials), trusts only `REMOTE_ADDR` unless a proxy is
+  listed, per-IP limit (429), 64 KB body limit, typed/length-limited fields. IP lookup (ISP, organisation,
+  country, continent, lat/lon) cached in `ip_intel_cache`, refreshed after 90 days, and best effort: a failed
+  lookup never fails the request.
+- `monitor/index.php` — Kibana-style dashboard: stat tiles with previous-period change, 即時動態 (per second, last
+  60 s), launches / devices over time, weekday × hour heat map, organisation / country / version / OS /
+  architecture rankings, license-key and organisation leaderboards with 超用 / 跨組織 / 疑似 VM 克隆 / 多機集中
+  flags, event log, organisation drill-down. Light / dark theme.
+- Geography (`monitor/geo.php`): Leaflet map on Geoapify tiles (dots sized by devices, red = 疑似盜用), 五大洲 and
+  per-country 疑似盜用 statistics; 疑似盜用 = over-used key, VM-clone organisation or a configured crack marker.
+- Time ranges 5 min … 90 days / all, with 10 s / 1 min / 1 h / 1 day buckets; live refresh every 1–60 s without
+  reloading (keeps scroll, zoom and map view).
+- Own sign-in for the monitor (same accounts, separate login state), limited to `config.php` `monitor_admins`.
+- Demo mode (`?demo=1`, `monitor/demo_data.php`): a deterministic fake world with per-second data, so every chart
+  moves; never touches the database.
+- SQL: `sql/migrate_2026-11-12_telemetry.sql` (record of the hand-made tables), `sql/migrate_2026-11-13_ip_geo.sql`.
+
+## Security hardening (2026-11-13)
+
+- Plaintext `users.password` column wiped and dropped (`sql/migrate_2026-11-13_security.sql`, part 2).
+- Sign-in attempt limit on every login path (`api/lib/LoginThrottle.php`, table `login_attempts`): 5 failures
+  per account / 20 per IP in 15 minutes → 429 with `Retry-After`, correct password included.
+- HTTPS enforced (`security.force_https`, on): page redirects built from `app_url`, 403 for API calls over http;
+  `collect.php` / `update.php` exempt. `app.js` moves pages opened by host name to https and refuses framing.
+- Security headers on every PHP response (`api/lib/SecurityHeaders.php`) and, via the root `.htaccess`, on static
+  files: nosniff, `X-Frame-Options: DENY`, Referrer-Policy, Permissions-Policy, COOP, Content-Security-Policy
+  (nonce-based on the monitor; `index.html` also carries its CSP as `<meta>`). HSTS available, off by default.
+
 ## Frontend
 
 - Login screen (session-based), logout, session-status check on page load.

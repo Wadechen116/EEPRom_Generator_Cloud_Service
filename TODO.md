@@ -12,7 +12,7 @@ open is harmless: with `mail.enabled` false (or the `mail` block missing) a requ
 accepted and quietly ignored — nothing stored, nothing sent.
 
 - **Built**: "Forgot password?" on the login screen → `api/forgot_password.php` →
-  emailed link `<app_url>/#reset=<token>` → reset form → `api/reset_password.php`.
+  emailed link `<app_url>/index.html#reset=<token>` → reset form → `api/reset_password.php`.
   Token-based: `password_resets` table (`token_hash` = sha256 of a random 32-byte token,
   `expires_at`, `used_at`); the raw token only ever exists in the email. On reset, only
   `password_hash` is updated — **not** the legacy `password` column (writing a plaintext
@@ -59,18 +59,31 @@ accepted and quietly ignored — nothing stored, nothing sent.
 
 ## Not started
 
-- **Drop the legacy `password` column** on `users` once comfortable — it's
-  unused (only `password_hash` is read by `api/login.php`), but still holds
-  whatever plaintext was typed in when accounts were created manually via
-  phpMyAdmin: `ALTER TABLE users DROP COLUMN password;`
+### Monitor / telemetry follow-ups
+- **Fill in `monitor_admins`** in the server's `config.php` — until then every account can open the monitor.
+- **Delete the test row** `DELETE FROM telemetry_logs WHERE machine_id = 'TEST1';`.
+- **IP lookup provider** — ip-api.com's free tier is non-commercial only and plain http. Options: Geoapify's IP
+  Geolocation API (https, same key as the map) or a self-hosted MaxMind GeoLite2 database.
+- **Privacy / retention** — mention the telemetry (computer names, AD domains, intranet IPs, hardware serials) in
+  the license terms / privacy notice; decide a retention period and purge older `telemetry_logs` rows.
+- **Signed telemetry** (optional) — anyone can post to `collect.php`; an HMAC signature from the application would
+  stop casual forgery (a key inside the executable can still be extracted, so not a guarantee).
+
+### Security follow-ups
+- **HSTS** — set `security.hsts_max_age` to 300, later 31536000, once it is certain no site on the host
+  `pend.soinc.com.tw` is http-only (HSTS covers the whole host).
+- **phpMyAdmin exposure** — `cosmos.soinc.com.tw/phpmyadmin` should be reachable from the company network / VPN
+  only (IT).
+- **Code-signing of update packages** — `update.php`'s SHA-256 lives on the same server as the packages; an
+  Authenticode signature checked by the applications would survive a compromised server.
+
+### Older items
+
 - **Rotate the API key** — the current one was pasted into chat once during
   earlier troubleshooting. Not a high-value secret (see API_DOCUMENTATION.md
   on what it does/doesn't protect), but cheap to rotate: generate a new one
   (`php -r "echo bin2hex(random_bytes(32));"`), update `api/config/config.php`.
   Nothing else needs to change — `assets/js/app.js` fetches it at runtime.
-- **Login brute-force protection** — `api/login.php` has no failed-attempt
-  rate limiting or lockout. Low priority for a small internal user base, but a
-  known gap if this is ever exposed more broadly.
 - **CSRF** — the session cookie is `SameSite=Lax`, which blocks most
   cross-site POST forgeries but isn't a dedicated CSRF token. Acceptable
   trade-off for the current scope; revisit if this ever needs a stricter

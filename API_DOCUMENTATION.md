@@ -16,11 +16,15 @@ All responses are JSON with the same envelope:
 
 ## Authentication
 
-Every endpoint except `public_key.php` and `update.php` requires the API key.
+Every endpoint except `public_key.php`, `update.php` and `collect.php` requires the API key.
 The data endpoint (`eeprom_config.php`) additionally requires a login — **two
 independent layers**, both must pass. `forgot_password.php` and `reset_password.php`
 need the API key only (there is no logged-in user in a password reset; the emailed
 one-time token is the credential).
+
+**HTTPS.** With `security.force_https` on in `config.php` (it is, on this deployment), every endpoint that
+uses the API key refuses plain-http calls with HTTP 403 `{"success":false,"error":"HTTPS required"}`.
+`collect.php` and `update.php` are exempt, so installed desktop applications keep working whatever URL they use.
 
 ### 1. API Key (all endpoints)
 
@@ -61,6 +65,26 @@ curl -H "X-Account: <account>" -H "X-Password: <password>" ...
 
 **Requires HTTPS.** Both send the real password on every request (Basic Auth
 base64-*encodes* it, which is not encryption).
+
+### Sign-in attempt limit (all login paths)
+
+`login.php`, the per-request headers above and the monitor page's sign-in share one limit
+(`api/lib/LoginThrottle.php`, table `login_attempts`). Within the last 15 minutes:
+
+- 5 failures for one **account name** (from any IP), or
+- 20 failures from one **IP** (for any account names)
+
+lock further attempts for that account / IP — **even with the correct password** — until the oldest of those
+failures is 15 minutes old. A locked request gets HTTP 429 with a `Retry-After` header (seconds):
+
+```json
+{ "success": false, "error": "Too many failed sign-in attempts. Try again in 15 minute(s)." }
+```
+
+A successful sign-in clears that account's failures. Account names that do not exist are counted and locked
+exactly like real ones, so the limit reveals nothing about which accounts exist. The numbers are set in
+`config.php` (`login_throttle`). A tool that signs in on every request (headers) should stop and wait on 429
+instead of retrying.
 
 ---
 
@@ -105,6 +129,8 @@ used to enumerate valid accounts):
 { "success": false, "error": "Invalid account or password" }
 ```
 → HTTP 401
+
+Too many recent failures for this account or IP (see "Sign-in attempt limit") → HTTP 429 with `Retry-After`.
 
 ---
 
@@ -174,7 +200,7 @@ What happens after the reply, silently, in this order:
    `554 5.7.1 ... Client host rejected: Access denied` — is written to the server's PHP
    error log.
 
-The link in the mail is `<app_url>/#reset=<64 hex chars>`. The token is in the URL
+The link in the mail is `<app_url>/index.html#reset=<64 hex chars>` (the page is named, not left to the directory address, so the web server's `DirectoryIndex` order cannot send it to another index file; if `app_url` already ends in `.html`/`.htm`/`.php` it is used as is). The mail is sent as `multipart/alternative`: an HTML part where the address sits in an `href` behind the label "Choose a new password", and a plain-text part with the address on a line of its own. The address is over 100 characters, wider than most mail programs show a plain-text line in, which folded it into two pieces with only the first one linked. The token is in the URL
 **fragment**, which browsers never send to a server, so it stays out of Apache access
 logs and `Referer` headers. `app_url` comes from `config.php`, never from the request.
 A link works once and expires after `mail.reset_ttl_minutes` (default 30).
@@ -422,6 +448,80 @@ Not found → HTTP 404.
 
 ---
 
+### `POST collect.php` — telemetry from the desktop applications
+
+**No authentication** (no API key, no login): the applications report on start-up, before anyone signs in.
+One request = one launch, stored as one row of `telemetry_logs`. The data is shown on the monitor page
+(`monitor/index.php`, see below).
+
+```
+POST collect.php
+Content-Type: application/json
+```
+
+| Field | Required | Max length | Meaning |
+|---|---|---|---|
+| `machine_id` | **yes** | 64 | Device identity: hash of the hardware IDs below |
+| `hostname` | | 128 | Computer name |
+| `local_ips` | | 255 | Intranet IP list, e.g. `"192.168.1.50, 10.0.0.12"` |
+| `ad_domain` | | 128 | Windows AD domain (empty when not in a domain) |
+| `cpu_id` | | 64 | `Win32_Processor.ProcessorId` |
+| `mb_uuid` | | 64 | `Win32_ComputerSystemProduct.UUID` |
+| `disk_serial` | | 128 | `Win32_DiskDrive.SerialNumber` of the system disk |
+| `os_version` | | 64 | e.g. `Windows 11 23H2` |
+| `arch` | | 16 | `x64` / `x86` / `ARM64` |
+| `app_version` | | 32 | Application version |
+| `license_key` | | 128 | License key in use, or the application's "cracked" marker |
+
+Longer values are cut to the maximum length (in characters); fields that are not strings or numbers are
+stored as empty. The client's public IP is **not** a field: the server takes it from the connection
+(`REMOTE_ADDR`; `CF-Connecting-IP` / `X-Forwarded-For` are believed only from proxies listed in
+`telemetry.trusted_proxies`).
+
+```bash
+curl -H "Content-Type: application/json" \
+  -d '{"machine_id":"3f2a...","hostname":"PC-01","app_version":"2.1.0","license_key":"SOI-XXXX-XXXX-XXXX"}' \
+  https://pend.soinc.com.tw/chamonix/api/collect.php
+```
+
+```powershell
+# Windows PowerShell 5.1: "curl" there is Invoke-WebRequest, so use this instead
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$body = @{ machine_id = 'TEST1'; hostname = 'PC1'; app_version = '1.0.0' } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri 'https://pend.soinc.com.tw/chamonix/api/collect.php' `
+    -ContentType 'application/json; charset=utf-8' -Body $body
+```
+
+**This endpoint has its own response shape** (not the `success`/`data` envelope), because that is what the
+applications parse:
+
+```json
+{ "status": "ok", "latest_version": "1.0.0" }
+```
+
+`latest_version` comes from `telemetry.latest_version` in `config.php`.
+
+| HTTP | Body | When |
+|---|---|---|
+| 200 | `{"status":"ok","latest_version":"..."}` | stored |
+| 400 | `{"status":"error"}` | body is not JSON, or `machine_id` missing / empty |
+| 405 | `{"status":"error"}` | not a POST |
+| 413 | `{"status":"error"}` | body larger than 64 KB |
+| 429 | `{"status":"error"}` | more than `telemetry.max_per_minute` (default 30) launches from this IP in the last minute |
+| 500 | `{"status":"error"}` | database problem (details in the server's PHP error log, prefix `[collect]`) |
+
+After storing the launch, the server looks up ISP / organisation / country / continent / latitude-longitude of
+public IPs at ip-api.com and caches them in `ip_intel_cache` (new IPs, IPs cached without coordinates, and
+entries older than `telemetry.geo_refresh_days`, default 90). That lookup is best effort: if it fails, the
+launch is still stored and the application still gets `ok`. Private / reserved IPs are never looked up.
+`telemetry.geo_lookup = false` turns it off. Note: ip-api.com's free tier allows non-commercial use only and
+uses plain http.
+
+**Trust:** anyone can post here, so a row only says what *some client* claimed — the monitor page treats it
+as a lead, never as proof (see "Design decisions" below).
+
+---
+
 ### `GET update.php` — update manifest for the desktop applications
 
 **No authentication.** The applications request their manifest with no headers at
@@ -502,6 +602,32 @@ upload, check `?list=1` to confirm it is really published. See
 
 ---
 
+## Monitor dashboard — `monitor/index.php`
+
+Not an API but a page (HTML), documented here because it is the reader of `collect.php`'s data.
+URL: `https://pend.soinc.com.tw/chamonix/monitor/index.php`. Setup and operation: `README_DEPLOY.md`,
+section "Monitor dashboard".
+
+- **Its own sign-in.** Same accounts as the EEPROM Config page (`users`, bcrypt), but a separate login state
+  (session key `monitor_account`): signing in or out on one page does not affect the other. Only accounts in
+  `config.php` `monitor_admins` may sign in (empty list = every account). Same attempt limit as `login.php`.
+- **Query parameters** (all optional; they are also what the filter row writes):
+
+| Parameter | Values | Default |
+|---|---|---|
+| `range` | `5m`, `15m`, `1h`, `24h`, `7d`, `30d`, `90d`, `all` | `7d` (`15m` in demo mode) |
+| `ver` | an `app_version` | all versions |
+| `target` | an organisation name (AD domain, else ISP organisation, else public IP) | none = no drill-down |
+| `demo` | `1` = fake data from `monitor/demo_data.php`; the database is not queried | off |
+
+- **Live refresh** (the 即時更新 menu: off / 1 / 5 / 10 / 30 / 60 s) re-requests the **same URL** in the
+  background and swaps in the new numbers; there is no separate JSON API. Each refresh runs the page's full set
+  of queries, so prefer 5–10 s on real data and long ranges.
+- **Security:** every response sends a Content-Security-Policy with a per-response nonce for its inline
+  scripts; collected values are HTML-escaped and embedded as JSON with `<`, `>`, `&`, quotes escaped.
+
+---
+
 ## Value domains and `content` encoding
 
 This table is synced into the desktop tool (E2pRom_Generator, **Sync Cloud**), which
@@ -578,8 +704,11 @@ An `INI` record's `content` is the file's own text, unchanged.
 | 201 | created (POST create) |
 | 400 | bad request — missing/invalid field, invalid `index`; for `reset_password.php` also an invalid/expired link or a rejected new password |
 | 401 | API key and/or login check failed |
+| 403 | `HTTPS required` — a plain-http call while `security.force_https` is on |
 | 404 | record not found |
 | 405 | method not allowed |
+| 413 | `collect.php`: request body over 64 KB |
+| 429 | too many attempts: sign-in limit (`login.php`, header login, monitor) with `Retry-After`, or `collect.php`'s per-IP limit |
 | 500 | server error (DB unavailable, missing config — details go to the server's PHP error log, never to the client) |
 
 ---
@@ -603,3 +732,10 @@ An `INI` record's `content` is the file's own text, unchanged.
 - **The API key is not equivalent to login credentials.** It stops naive/automated
   direct hits; the account/password (session or per-request) is what actually
   controls read/write access to the data.
+- **Expect 429 on sign-in.** After 5 wrong passwords for an account (or 20 from one IP) in 15 minutes, every
+  sign-in for it is refused for a while, correct password included. A tool must back off on 429 (honour
+  `Retry-After`), not retry in a loop — retrying keeps the lock alive.
+- **HTTPS only.** Calls over plain http get 403 on every endpoint that takes the API key; use `https://`.
+- **Telemetry is self-reported.** `collect.php` is open to anyone, so a client can send any hostname, AD domain or
+  license key — including someone else's, to make another company look like a pirate. Treat the monitor's
+  rankings and "疑似盜用" flags as leads to check, not evidence.
