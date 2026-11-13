@@ -100,6 +100,11 @@ prints an `UPDATE ... SET password_hash = ..., email = ...`), or directly in php
   fill in by themselves the next time that IP reports; `DELETE FROM ip_intel_cache;` (it is only a cache) refills
   everything at once.
 
+- `sql/migrate_2026-11-13_event.sql` — adds `telemetry_logs.event` (`start` / `heartbeat` / `manual`, existing rows
+  become `start`) and the index `idx_machine_created` for the per-device rate limit. Run it **before** uploading the
+  matching `collect.php` / `monitor/index.php` (both still work without it: reports are stored without the event and
+  every row counts as a launch).
+
 ### Sign-in attempt limit and the old plaintext column
 
 `sql/migrate_2026-11-13_security.sql` (run 2026-11-13):
@@ -134,7 +139,8 @@ deployment, except `monitor_admins`, which is up to you):
 
     'telemetry' => [
         'latest_version'       => '1.0.0', // returned to the applications by collect.php
-        'max_per_minute'       => 30,      // launches accepted per client IP per minute
+        'max_per_machine_per_minute' => 10,   // reports per machine_id per minute (the old 'max_per_minute' is not read)
+        'max_per_ip_per_minute'      => 600,  // reports per public IP per minute (whole companies share one NAT IP)
         'geo_lookup'           => true,    // ip-api.com lookup (free tier: non-commercial, http only)
         'geo_refresh_days'     => 90,
         'trusted_proxies'      => [],      // proxies whose X-Forwarded-For may be believed

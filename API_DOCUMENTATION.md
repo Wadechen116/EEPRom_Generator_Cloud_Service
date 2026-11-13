@@ -472,6 +472,7 @@ Content-Type: application/json
 | `arch` | | 16 | `x64` / `x86` / `ARM64` |
 | `app_version` | | 32 | Application version |
 | `license_key` | | 128 | License key in use, or the application's "cracked" marker |
+| `event` | | 16 | Why the report was sent: `start` (launch), `heartbeat` (periodic), `manual`. Missing or any other value = `start` -- what clients without the field mean. The monitor counts only `start` as launches. Needs `sql/migrate_2026-11-13_event.sql`; before it, rows are stored without the event |
 
 Longer values are cut to the maximum length (in characters); fields that are not strings or numbers are
 stored as empty. The client's public IP is **not** a field: the server takes it from the connection
@@ -496,10 +497,11 @@ Invoke-RestMethod -Method Post -Uri 'https://pend.soinc.com.tw/chamonix/api/coll
 applications parse:
 
 ```json
-{ "status": "ok", "latest_version": "1.0.0" }
+{ "status": "ok", "latest_version": "1.0.0", "client_ip": "203.0.113.7" }
 ```
 
-`latest_version` comes from `telemetry.latest_version` in `config.php`.
+`latest_version` comes from `telemetry.latest_version` in `config.php`. `client_ip` is the caller's public IP as this
+server sees it (the same value stored as `public_ip`); the MonitorSoftDevice library hands it to the application.
 
 | HTTP | Body | When |
 |---|---|---|
@@ -507,7 +509,7 @@ applications parse:
 | 400 | `{"status":"error"}` | body is not JSON, or `machine_id` missing / empty |
 | 405 | `{"status":"error"}` | not a POST |
 | 413 | `{"status":"error"}` | body larger than 64 KB |
-| 429 | `{"status":"error"}` | more than `telemetry.max_per_minute` (default 30) launches from this IP in the last minute |
+| 429 | `{"status":"error"}` + `Retry-After: 60` | in the last minute, more than `telemetry.max_per_machine_per_minute` (default 10) reports from this `machine_id`, or more than `telemetry.max_per_ip_per_minute` (default 600) from this IP (a whole company behind one NAT shares it) |
 | 500 | `{"status":"error"}` | database problem (details in the server's PHP error log, prefix `[collect]`) |
 
 After storing the launch, the server looks up ISP / organisation / country / continent / latitude-longitude of

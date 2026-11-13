@@ -77,7 +77,10 @@ return [
     // ---- Telemetry endpoint (api/collect.php, called by the desktop app) -----------------------
     'telemetry' => [
         'latest_version'  => '1.0.0',   // returned to the app as "latest_version"
-        'max_per_minute'  => 30,        // records accepted per client IP per minute (0 = no limit)
+        // Rate limits of api/collect.php (0 = that limit off). Replaces the old 'max_per_minute' (30 per IP), which
+        // is no longer read: with periodic reporting it blocked companies whose machines share one NAT address.
+        'max_per_machine_per_minute' => 10,    // per machine_id: a normal client sends < 1 per minute
+        'max_per_ip_per_minute'      => 600,   // per public IP: a whole company may share one address
         'geo_lookup'      => true,      // look up ISP/org at ip-api.com (free tier: non-commercial, HTTP only)
         // REMOTE_ADDR of a reverse proxy / Cloudflare in front of this server. Only requests coming
         // from these IPs may set the client IP via CF-Connecting-IP / X-Forwarded-For. Empty = none.

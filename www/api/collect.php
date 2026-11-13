@@ -1,9 +1,13 @@
 <?php
 /**
- * POST api/collect.php  -- telemetry from the desktop app (no login, no X-API-Key: the app calls it on startup).
+ * POST api/collect.php  -- telemetry from the desktop app (no login, no X-API-Key: the app calls it on startup and,
+ * with the MonitorSoftDevice library, periodically).
  * Body (JSON): machine_id (required), local_ips, hostname, ad_domain, cpu_id, mb_uuid, disk_serial,
- *              os_version, arch, app_version, license_key
- * Reply: {"status":"ok","latest_version":"..."}  or  {"status":"error"} with 400/405/413/429/500.
+ *              os_version, arch, app_version, license_key,
+ *              event = "start" | "heartbeat" | "manual" (optional; missing or unknown = "start", i.e. one launch --
+ *              what every client that predates the field means)
+ * Reply: {"status":"ok","latest_version":"...","client_ip":"<the caller's public IP as seen here>"}
+ *        or {"status":"error"} with 400/405/413/429 (+ Retry-After: 60)/500.
  * Viewed in monitor/index.php. Tables telemetry_logs / ip_intel_cache are created on the server by hand.
  *
  * Deliberately does NOT include bootstrap.php: that one requires X-API-Key and uses a different JSON shape.
@@ -122,37 +126,48 @@ $data = json_decode((string) $raw_input, true);
 if (!is_array($data) || field($data, 'machine_id', 64) === '') {
     collect_reply(400, ['status' => 'error']);
 }
+$machineId = field($data, 'machine_id', 64);
+
+// Why this report was sent. Only known values are stored; anything else counts as a launch ("start"), which is
+// also what old clients that do not send the field mean. The monitor counts "start" rows as launches.
+$event = strtolower(field($data, 'event', 16));
+if (!in_array($event, ['start', 'heartbeat', 'manual'], true)) {
+    $event = 'start';
+}
 
 try {
     $pdo = Database::connection($config['db']);
 
-    // Simple flood guard: at most N records per IP per minute (default 30).
-    $perMinute = (int) ($tcfg['max_per_minute'] ?? 30);
-    if ($perMinute > 0) {
-        $rl = $pdo->prepare('SELECT COUNT(*) FROM telemetry_logs
-                             WHERE public_ip = :ip AND created_at > NOW() - INTERVAL 1 MINUTE');
-        $rl->execute([':ip' => $client_ip]);
-        if ((int) $rl->fetchColumn() >= $perMinute) {
+    // Flood guard, two levels (0 = that level off):
+    //  - per device: a normal client sends far less than one report a minute (heartbeat >= 60 s), so a low limit
+    //    per machine_id stops a stuck or looping client without touching anyone else;
+    //  - per IP: a generous ceiling. A whole company behind one NAT address shares it, so it must allow many
+    //    devices; it only stops a single host that floods with made-up machine_ids.
+    // The old single setting telemetry.max_per_minute (30 per IP) is no longer read: with periodic reporting it
+    // blocked companies with more than a few dozen machines.
+    $limits = [
+        ['machine_id', $machineId, (int) ($tcfg['max_per_machine_per_minute'] ?? 10)],
+        ['public_ip', $client_ip, (int) ($tcfg['max_per_ip_per_minute'] ?? 600)],
+    ];
+    foreach ($limits as [$column, $value, $max]) {
+        if ($max <= 0) {
+            continue;
+        }
+        $rl = $pdo->prepare("SELECT COUNT(*) FROM telemetry_logs
+                             WHERE $column = :v AND created_at > NOW() - INTERVAL 1 MINUTE");
+        $rl->execute([':v' => $value]);
+        if ((int) $rl->fetchColumn() >= $max) {
+            header('Retry-After: 60');   // clients that honour it (MonitorSoftDevice does) back off a minute
             collect_reply(429, ['status' => 'error']);
         }
     }
 
-    $sql = "INSERT INTO telemetry_logs (
-                public_ip, local_ips, hostname, ad_domain,
-                machine_id, cpu_id, mb_uuid, disk_serial,
-                os_version, arch, app_version, license_key
-            ) VALUES (
-                :public_ip, :local_ips, :hostname, :ad_domain,
-                :machine_id, :cpu_id, :mb_uuid, :disk_serial,
-                :os_version, :arch, :app_version, :license_key
-            )";
-
-    $pdo->prepare($sql)->execute([
+    $row = [
         ':public_ip'   => substr($client_ip, 0, 45),
         ':local_ips'   => field($data, 'local_ips', 255),
         ':hostname'    => field($data, 'hostname', 128),
         ':ad_domain'   => field($data, 'ad_domain', 128),
-        ':machine_id'  => field($data, 'machine_id', 64),
+        ':machine_id'  => $machineId,
         ':cpu_id'      => field($data, 'cpu_id', 64),
         ':mb_uuid'     => field($data, 'mb_uuid', 64),
         ':disk_serial' => field($data, 'disk_serial', 128),
@@ -160,7 +175,22 @@ try {
         ':arch'        => field($data, 'arch', 16),
         ':app_version' => field($data, 'app_version', 32),
         ':license_key' => field($data, 'license_key', 128),
-    ]);
+    ];
+    $columns = 'public_ip, local_ips, hostname, ad_domain, machine_id, cpu_id, mb_uuid, disk_serial,
+                os_version, arch, app_version, license_key';
+    try {
+        $pdo->prepare("INSERT INTO telemetry_logs ($columns, event) VALUES (" . implode(', ', array_keys($row)) . ', :event)')
+            ->execute($row + [':event' => $event]);
+    } catch (PDOException $e) {
+        // 42S22 = unknown column: sql/migrate_2026-11-13_event.sql has not been run yet. Store the report
+        // without its event (the monitor then counts every row as a launch, as before) instead of losing it.
+        if ($e->getCode() !== '42S22') {
+            throw $e;
+        }
+        error_log('[collect] telemetry_logs has no "event" column yet: run sql/migrate_2026-11-13_event.sql');
+        $pdo->prepare("INSERT INTO telemetry_logs ($columns) VALUES (" . implode(', ', array_keys($row)) . ')')
+            ->execute($row);
+    }
 
     // The launch is recorded. The IP lookup below is best effort: whatever goes wrong there (ip-api.com down,
     // sql/migrate_2026-11-13_ip_geo.sql not run yet, ...) is logged and the app still gets "ok".
@@ -170,7 +200,13 @@ try {
         error_log('[collect] geo lookup: ' . $e->getMessage());
     }
 
-    collect_reply(200, ['status' => 'ok', 'latest_version' => (string) ($tcfg['latest_version'] ?? '1.0.0')]);
+    // client_ip: the caller's public address as this server sees it (it cannot be forged by the client the way a
+    // field in the body could). MonitorSoftDevice reports it to the application as its "public IP".
+    collect_reply(200, [
+        'status'         => 'ok',
+        'latest_version' => (string) ($tcfg['latest_version'] ?? '1.0.0'),
+        'client_ip'      => $client_ip,
+    ]);
 
 } catch (Throwable $e) {
     error_log('[collect] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());

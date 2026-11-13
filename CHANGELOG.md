@@ -63,6 +63,15 @@ details see `API_DOCUMENTATION.md`; for deployment steps see `README_DEPLOY.md`.
   moves; never touches the database.
 - SQL: `sql/migrate_2026-11-12_telemetry.sql` (record of the hand-made tables), `sql/migrate_2026-11-13_ip_geo.sql`.
 
+## Telemetry for the MonitorSoftDevice library (2026-11-13)
+
+- `collect.php` replies with `client_ip` (the caller's public IP as the server sees it).
+- Report types: `event` = `start` / `heartbeat` / `manual` stored in `telemetry_logs.event`
+  (`sql/migrate_2026-11-13_event.sql`; missing / unknown = `start`). The monitor counts only `start` as launches,
+  every report still counts for active devices; the event log shows the type.
+- Rate limit per device (10 / minute per `machine_id`) plus a high per-IP ceiling (600 / minute) instead of 30 per IP,
+  so companies behind one NAT address are not blocked; 429 now carries `Retry-After: 60`.
+
 ## Security hardening (2026-11-13)
 
 - Plaintext `users.password` column wiped and dropped (`sql/migrate_2026-11-13_security.sql`, part 2).

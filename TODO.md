@@ -60,6 +60,9 @@ accepted and quietly ignored — nothing stored, nothing sent.
 ## Not started
 
 ### Monitor / telemetry follow-ups
+- **Deploy the event / client_ip / rate-limit change** (2026-11-13): run `sql/migrate_2026-11-13_event.sql`, upload
+  `api/collect.php` + `monitor/index.php`, and in the server's `config.php` replace `telemetry.max_per_minute` (no longer
+  read) with `max_per_machine_per_minute` / `max_per_ip_per_minute` if it was set.
 - **Fill in `monitor_admins`** in the server's `config.php` — until then every account can open the monitor.
 - **Delete the test row** `DELETE FROM telemetry_logs WHERE machine_id = 'TEST1';`.
 - **IP lookup provider** — ip-api.com's free tier is non-commercial only and plain http. Options: Geoapify's IP

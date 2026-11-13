@@ -17,7 +17,7 @@ ini_set('log_errors', '1');
 error_reporting(E_ALL);
 
 define('APP_ENTRY', true);
-const MONITOR_VERSION = '2026-11-13e';   // shown in the page footer: tells which upload is live on the server
+const MONITOR_VERSION = '2026-11-13f';   // shown in the page footer: tells which upload is live on the server
 
 require __DIR__ . '/../api/lib/Response.php';
 require __DIR__ . '/../api/lib/SessionAuth.php';
@@ -325,9 +325,15 @@ if ($demo) {
 $ORG = ORG_EXPR;
 $FROM = FROM_SQL;
 
+// Launches = rows with event 'start' (sql/migrate_2026-11-13_event.sql). Heartbeats / manual reports still count for
+// devices, organisations, licenses, map... but not as launches. Before that migration every row is a launch.
+$hasEvent = (bool) $pdo->query("SHOW COLUMNS FROM telemetry_logs LIKE 'event'")->fetch();
+$IS_START = $hasEvent ? "(t.event = 'start')" : '1';
+$EVENT_COL = $hasEvent ? 't.event' : "'start'";
+
 /* ============================== Queries ============================== */
 
-$kpiSql = "SELECT COUNT(*) AS launches,
+$kpiSql = "SELECT COALESCE(SUM($IS_START), 0) AS launches,
                   COUNT(DISTINCT t.machine_id) AS devices,
                   COUNT(DISTINCT NULLIF(t.license_key, '')) AS licenses,
                   COUNT(DISTINCT $ORG) AS orgs
@@ -357,7 +363,7 @@ $overLicensed = count($overKeyList);
 // (only the version filter applies). Served by idx_created_at, cheap even at a 1-second refresh.
 $liveWhere = 't.created_at >= :lf' . ($ver !== '' ? ' AND t.app_version = :lv' : '');
 $liveParams = [':lf' => $nowDt->modify('-299 second')->format('Y-m-d H:i:s')] + ($ver !== '' ? [':lv' => $ver] : []);
-$livePerSec = array_column(q($pdo, "SELECT DATE_FORMAT(t.created_at, '%Y-%m-%d %H:%i:%s') AS s, COUNT(*) AS n
+$livePerSec = array_column(q($pdo, "SELECT DATE_FORMAT(t.created_at, '%Y-%m-%d %H:%i:%s') AS s, SUM($IS_START) AS n
                                     FROM telemetry_logs t WHERE $liveWhere GROUP BY s", $liveParams), 'n', 's');
 $liveDev5 = (int) q($pdo, "SELECT COUNT(DISTINCT t.machine_id) AS n FROM telemetry_logs t WHERE $liveWhere",
                     $liveParams)[0]['n'];
@@ -386,12 +392,12 @@ $bucketExpr = [
     'hour' => "DATE_FORMAT(t.created_at, '%Y-%m-%d %H:00')",
     'day'  => "DATE_FORMAT(t.created_at, '%Y-%m-%d')",
 ][$bucket];
-$tsRows = q($pdo, "SELECT $bucketExpr AS b, COUNT(*) AS launches, COUNT(DISTINCT t.machine_id) AS devices
+$tsRows = q($pdo, "SELECT $bucketExpr AS b, SUM($IS_START) AS launches, COUNT(DISTINCT t.machine_id) AS devices
                    $FROM $W GROUP BY b ORDER BY b", $P);
 // Weekday (0 = Monday) x hour heatmap of launches.
 $heat = array_map(fn($r) => [(int) $r['h'], (int) $r['wd'], (int) $r['n']],
-    q($pdo, "SELECT WEEKDAY(t.created_at) AS wd, HOUR(t.created_at) AS h, COUNT(*) AS n
-             $FROM $W GROUP BY wd, h", $P));
+    q($pdo, "SELECT WEEKDAY(t.created_at) AS wd, HOUR(t.created_at) AS h, SUM($IS_START) AS n
+             $FROM $W GROUP BY wd, h HAVING n > 0", $P));
 
 $orgList = q($pdo, "SELECT $ORG AS target_name,
                            MAX(c.org) AS isp_org,
@@ -400,7 +406,7 @@ $orgList = q($pdo, "SELECT $ORG AS target_name,
                            COUNT(DISTINCT NULLIF(t.disk_serial, '')) AS unique_disks,
                            COUNT(DISTINCT NULLIF(t.mb_uuid, '')) AS unique_mbs,
                            COUNT(DISTINCT NULLIF(t.license_key, '')) AS licenses,
-                           COUNT(t.id) AS launch_count,
+                           SUM($IS_START) AS launch_count,
                            MAX(t.created_at) AS last_seen
                     $FROM $W
                     GROUP BY target_name
@@ -419,14 +425,14 @@ $archStats = q($pdo, "SELECT COALESCE(NULLIF(t.arch, ''), '未知') AS name, COU
 $licenses = q($pdo, "SELECT t.license_key,
                             COUNT(DISTINCT t.machine_id) AS devices,
                             COUNT(DISTINCT $ORG) AS orgs,
-                            COUNT(*) AS launches,
+                            SUM($IS_START) AS launches,
                             MAX(t.created_at) AS last_seen
                      $FROM $W AND t.license_key <> ''
                      GROUP BY t.license_key
                      ORDER BY devices DESC, launches DESC
                      LIMIT 15", $P);
 
-$recent = q($pdo, "SELECT t.created_at, t.hostname, t.public_ip, $ORG AS org, c.country,
+$recent = q($pdo, "SELECT t.created_at, $EVENT_COL AS event, t.hostname, t.public_ip, $ORG AS org, c.country,
                           t.app_version, t.os_version, t.arch, t.machine_id, t.license_key
                    $FROM $W ORDER BY t.created_at DESC LIMIT 50", $P);
 
@@ -443,7 +449,7 @@ if ($selectedTarget !== '') {
                                      MAX(t.disk_serial) AS disk_serial,
                                      MAX(t.license_key) AS license_key,
                                      MAX(t.app_version) AS app_version,
-                                     COUNT(t.id) AS run_count,
+                                     SUM($IS_START) AS run_count,
                                      MAX(t.created_at) AS last_active
                               $FROM $W AND $ORG = :target
                               GROUP BY t.machine_id
@@ -782,6 +788,10 @@ select { height: 32px; border-radius: 6px; border: 1px solid var(--border); back
 .iw b { font-size: 15px; }
 .iw .s { color: #b02a2a; font-weight: 600; }
 .iw .o { color: #52514e; font-size: 12px; margin-top: 4px; }
+.ev { display: inline-block; padding: 0 8px; border-radius: 10px; font-size: 12px; border: 1px solid var(--border); }
+.ev-start { background: color-mix(in srgb, var(--series-1) 18%, transparent); }
+.ev-heartbeat { background: color-mix(in srgb, var(--series-3) 18%, transparent); }
+.ev-manual { background: color-mix(in srgb, var(--violet) 18%, transparent); }
 .ratio { display: inline-block; width: 80px; height: 8px; border-radius: 4px; background: var(--grid); vertical-align: middle;
          margin-right: 8px; overflow: hidden; }
 .ratio span { display: block; height: 100%; background: var(--critical); border-radius: 4px; }
@@ -1187,14 +1197,15 @@ details.raw summary { cursor: pointer; color: var(--muted); font-size: 12px; mar
 
     <!-- Event log (like Kibana Discover) -->
     <section class="card tone-violet">
-        <div class="card-h"><h2>最新事件</h2><span class="sub">最近 50 筆啟動紀錄</span></div>
+        <div class="card-h"><h2>最新事件</h2><span class="sub">最近 50 筆回報（啟動、心跳、手動）</span></div>
         <div class="tbl-wrap tbl-scroll">
             <table>
-                <thead><tr><th>時間</th><th>電腦名稱</th><th>組織</th><th>國家</th><th>對外 IP</th><th>版本</th><th>OS / 架構</th><th>Machine ID</th><th>授權碼</th></tr></thead>
+                <thead><tr><th>時間</th><th>事件</th><th>電腦名稱</th><th>組織</th><th>國家</th><th>對外 IP</th><th>版本</th><th>OS / 架構</th><th>Machine ID</th><th>授權碼</th></tr></thead>
                 <tbody data-live="recent">
                 <?php foreach ($recent as $e): ?>
                     <tr>
                         <td class="mono nowrap"><?= h($e['created_at']) ?></td>
+                        <td class="nowrap"><?php $ev = $e['event'] ?? 'start'; ?><span class="ev ev-<?= h($ev) ?>"><?= h(['start' => '啟動', 'heartbeat' => '心跳', 'manual' => '手動'][$ev] ?? $ev) ?></span></td>
                         <td><?= h($e['hostname'] ?: '-') ?></td>
                         <td><a href="<?= h(url_with(['target' => $e['org']])) ?>"><?= h($e['org']) ?></a></td>
                         <td class="muted nowrap"><?= h($e['country'] ?: '-') ?></td>
@@ -1206,7 +1217,7 @@ details.raw summary { cursor: pointer; color: var(--muted); font-size: 12px; mar
                     </tr>
                 <?php endforeach; ?>
                 <?php if (empty($recent)): ?>
-                    <tr><td colspan="9" class="muted" style="text-align:center;padding:24px">此時間範圍內沒有遙測紀錄</td></tr>
+                    <tr><td colspan="10" class="muted" style="text-align:center;padding:24px">此時間範圍內沒有遙測紀錄</td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>
