@@ -41,6 +41,10 @@ ini_set('display_errors', '0');
 ini_set('log_errors', '1');
 error_reporting(E_ALL);
 
+// Headers only: no HTTPS rule here -- installed desktop apps may still ask over http.
+require __DIR__ . '/lib/SecurityHeaders.php';
+SecurityHeaders::send([], SecurityHeaders::API_CSP);
+
 const PROJECT_ROOT = __DIR__ . '/../project';
 const CHANNELS = ['release', 'debug'];
 

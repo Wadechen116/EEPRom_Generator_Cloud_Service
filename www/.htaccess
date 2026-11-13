@@ -5,3 +5,18 @@ Options -Indexes
 <FilesMatch "\.(sql|log|md)$">
     Require all denied
 </FilesMatch>
+
+# Security headers for files Apache serves directly (index.html, JS, CSS). PHP sends its own on everything it
+# produces (api/lib/SecurityHeaders.php), so these mostly matter for the static files. Guarded by IfModule:
+# an unguarded Header directive takes the whole site down with a 500 where mod_headers is not loaded.
+# If the site answers 500 right after uploading this file, remove this block (the server does not allow
+# Header in .htaccess) -- index.html carries the same CSP as a <meta> tag and app.js refuses framing anyway.
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+    <FilesMatch "\.html?$">
+        Header always set X-Frame-Options "DENY"
+        Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+    </FilesMatch>
+</IfModule>

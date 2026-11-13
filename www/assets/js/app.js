@@ -1,3 +1,14 @@
+// HTTPS for the page itself: the server-side redirect is optional (security.force_https) and .htaccess rules are
+// best effort here, so the page also moves itself to https. Only for a host NAME: a page opened by IP address
+// (intranet, no certificate for it) or on localhost stays on http.
+if (location.protocol === "http:" && !/^(localhost|\d{1,3}(\.\d{1,3}){3}|\[[0-9a-f:]+\])$/i.test(location.hostname)) {
+    location.replace("https://" + location.host + location.pathname + location.search + location.hash);
+}
+// Never run inside another site's frame (clickjacking), in case the X-Frame-Options header did not arrive.
+if (window.top !== window.self) {
+    try { window.top.location = window.self.location; } catch (e) { document.documentElement.style.display = "none"; }
+}
+
 /**
  * NOTE on API_KEY: fetched from api/public_key.php on load (see that file) rather than
  * hardcoded here, so api/config/config.php stays the single source of truth -- editing

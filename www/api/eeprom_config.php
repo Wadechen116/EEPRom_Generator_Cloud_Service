@@ -39,7 +39,7 @@ require __DIR__ . '/bootstrap.php';
 require __DIR__ . '/lib/SessionAuth.php';
 require __DIR__ . '/lib/CredentialAuth.php';
 
-$authenticatedAccount = SessionAuth::currentAccount() ?? CredentialAuth::verify($pdo);
+$authenticatedAccount = SessionAuth::currentAccount() ?? CredentialAuth::verify($pdo, $config);
 if ($authenticatedAccount === null) {
     Response::error('Login required', 401);
 }

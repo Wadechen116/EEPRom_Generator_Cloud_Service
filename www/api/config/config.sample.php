@@ -68,4 +68,61 @@ return [
         'timeout'           => 10,   // seconds to wait on the relay before giving up
         'reset_ttl_minutes' => 30,   // how long an emailed link works (5..1440)
     ],
+
+    // ---- Monitor dashboard (monitor/index.php) --------------------------------------------------
+    // users.name values allowed to sign in to the dashboard (on its own sign-in form, with their usual account).
+    // Empty array = every account may sign in there.
+    'monitor_admins' => [],
+
+    // ---- Telemetry endpoint (api/collect.php, called by the desktop app) -----------------------
+    'telemetry' => [
+        'latest_version'  => '1.0.0',   // returned to the app as "latest_version"
+        'max_per_minute'  => 30,        // records accepted per client IP per minute (0 = no limit)
+        'geo_lookup'      => true,      // look up ISP/org at ip-api.com (free tier: non-commercial, HTTP only)
+        // REMOTE_ADDR of a reverse proxy / Cloudflare in front of this server. Only requests coming
+        // from these IPs may set the client IP via CF-Connecting-IP / X-Forwarded-For. Empty = none.
+        'trusted_proxies' => [],
+
+        // monitor/index.php thresholds
+        'license_device_limit' => 1,    // devices one license key may run on; more = flagged "超用"
+        'org_device_alert'     => 5,    // devices per organisation flagged as "多機集中"
+        'geo_refresh_days'     => 90,   // re-look-up a cached IP's location after this many days
+        // license_key values the desktop app sends for a cracked / unlicensed copy (exact match).
+        // Devices reporting one of these count as "疑似盜用" on the map and in the country statistics,
+        // together with devices on an over-used license key and devices in a VM-clone organisation.
+        'crack_markers'        => [],
+    ],
+
+    // ---- Security (api/lib/SecurityHeaders.php) ---------------------------------------------------
+    'security' => [
+        // true = pages over http are redirected to https and password-carrying API calls over http are refused.
+        // Turn on ONLY after the monitor page footer shows 「伺服器偵測 HTTPS：是」: if PHP cannot see HTTPS
+        // (TLS ended by a proxy in front of Apache), turning it on would redirect in a loop / refuse every call.
+        'force_https'     => false,
+        // > 0 sends Strict-Transport-Security: browsers then refuse plain http for this HOST (all of
+        // pend.soinc.com.tw, not only /chamonix) for that many seconds. Start with 300; 31536000 once happy.
+        'hsts_max_age'    => 0,
+        // REMOTE_ADDR of a TLS-terminating proxy whose X-Forwarded-Proto header may be trusted. Empty = none.
+        'trusted_proxies' => [],
+    ],
+
+    // ---- Login attempt limit (api/lib/LoginThrottle.php; table from sql/migrate_2026-11-13_security.sql) ----
+    // Applies to the main page, header login (X-Account/X-Password) and the monitor page.
+    'login_throttle' => [
+        'window_minutes'  => 15,   // look-back window, and how long a lock lasts at most
+        'max_per_account' => 5,    // failures for one account name (from any IP) before it is locked
+        'max_per_ip'      => 20,   // failures from one IP (any account names) before that IP is locked
+    ],
+
+    // ---- Map on monitor/index.php: Geoapify tiles (drawn with Leaflet) ------------------------
+    // API key of your Geoapify project (myprojects.geoapify.com -> project -> API keys). Only the key is needed;
+    // the project id is not used by the tile URL. The key is sent to the browser with every tile request, so it
+    // cannot be secret: in the project's API key settings, allow only the HTTP referrer
+    // https://pend.soinc.com.tw/* (or the exact site). Empty = the map card shows setup instructions instead.
+    'geoapify' => [
+        'api_key'     => '',
+        // Map styles (https://apidocs.geoapify.com/docs/maps/map-tiles/): light / dark page theme.
+        'style_light' => 'osm-bright-grey',     // others: positron, klokantech-basic, osm-bright, ...
+        'style_dark'  => 'dark-matter-brown',   // dark-matter is almost black
+    ],
 ];

@@ -13,6 +13,7 @@ require __DIR__ . '/lib/Response.php';
 require __DIR__ . '/lib/Auth.php';
 require __DIR__ . '/lib/Validator.php';
 require __DIR__ . '/lib/Database.php';
+require __DIR__ . '/lib/SecurityHeaders.php';
 
 set_exception_handler(function (Throwable $e) {
     // Full detail goes to the server's existing PHP error log (never to the client).
@@ -31,6 +32,9 @@ if (!file_exists($configFile)) {
 $config = require $configFile;
 
 header('Content-Type: application/json; charset=utf-8');
+SecurityHeaders::send($config, SecurityHeaders::API_CSP);
+// These endpoints carry passwords / session cookies: with security.force_https on, refuse them over http.
+SecurityHeaders::requireHttps($config, true);
 
 Auth::requireApiKey($config['api_key']);
 

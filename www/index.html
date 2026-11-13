@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>EEPROM Generator cloud service</title>
+<!-- Same policy as the Content-Security-Policy header in the root .htaccess, here as a fallback in case the
+     server ignores .htaccess (frame-ancestors only works as a header; app.js covers framing). Everything this
+     page loads comes from this site; no inline scripts. Keep in sync with .htaccess. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <!-- ?v= is a manual cache-buster: bump it whenever style.css/app.js/etc. change and
      the browser (or an intermediary cache) might otherwise keep serving the old
      file. Without it, a redeploy can silently not take effect for visitors who
@@ -273,6 +277,6 @@
 <script src="assets/js/vendor/p5.min.js"></script>
 <script src="assets/js/fish.js?v=2"></script>
 <script src="assets/js/tagcloud3d.js?v=2"></script>
-<script src="assets/js/app.js?v=4"></script>
+<script src="assets/js/app.js?v=8"></script>
 </body>
 </html>

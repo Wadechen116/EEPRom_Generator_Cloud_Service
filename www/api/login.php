@@ -8,6 +8,7 @@
 
 require __DIR__ . '/bootstrap.php';
 require __DIR__ . '/lib/SessionAuth.php';
+require __DIR__ . '/lib/LoginThrottle.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     Response::error('Method not allowed', 405);
@@ -26,6 +27,13 @@ if ($account === '' || $password === '') {
     Response::error('account and password are required', 400);
 }
 
+// Too many recent failures for this account name or this IP: refuse before even looking at the password.
+$wait = LoginThrottle::retryAfter($pdo, $config, $account);
+if ($wait > 0) {
+    header('Retry-After: ' . $wait);
+    Response::error('Too many failed sign-in attempts. Try again in ' . LoginThrottle::minutes($wait) . ' minute(s).', 429);
+}
+
 // `users.name` is the account/login-name column in the actual remote table
 // (aliased to "account" here so the rest of this file / the JSON API contract
 // doesn't need to know about that naming choice).
@@ -36,9 +44,11 @@ $user = $stmt->fetch();
 // Same generic error whether the account doesn't exist or the password is wrong --
 // never reveal which one it was.
 if (!$user || !password_verify($password, $user['password_hash'])) {
+    LoginThrottle::fail($pdo, $account, 'web');
     Response::error('Invalid account or password', 401);
 }
 
+LoginThrottle::success($pdo, $user['account']);
 SessionAuth::login($user['account']);
 
 $pdo->prepare('UPDATE users SET last_login_at = NOW() WHERE name = :account')

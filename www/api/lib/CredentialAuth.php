@@ -22,8 +22,12 @@
  */
 
 class CredentialAuth {
-    /** Returns the account name if the request's Basic Auth credentials check out, else null. */
-    public static function verify(PDO $pdo): ?string {
+    /**
+     * Returns the account name if the request's credentials check out, else null.
+     * Every failed check counts towards LoginThrottle (this path is called on EVERY request a tool makes, so it
+     * would otherwise be the easiest place to guess passwords); while locked it answers 429 right away.
+     */
+    public static function verify(PDO $pdo, array $config = []): ?string {
         $creds = self::extractCredentials();
         if ($creds === null) {
             return null;
@@ -33,13 +37,22 @@ class CredentialAuth {
             return null;
         }
 
+        require_once __DIR__ . '/LoginThrottle.php';
+        $wait = LoginThrottle::retryAfter($pdo, $config, $account);
+        if ($wait > 0) {
+            header('Retry-After: ' . $wait);
+            Response::error('Too many failed sign-in attempts. Try again in ' . LoginThrottle::minutes($wait) . ' minute(s).', 429);
+        }
+
         $stmt = $pdo->prepare('SELECT name, password_hash FROM users WHERE name = :name');
         $stmt->execute([':name' => $account]);
         $user = $stmt->fetch();
 
         if (!$user || !password_verify($password, $user['password_hash'])) {
+            LoginThrottle::fail($pdo, $account, 'header');
             return null;
         }
+        LoginThrottle::success($pdo, $user['name']);
         return $user['name'];
     }
 

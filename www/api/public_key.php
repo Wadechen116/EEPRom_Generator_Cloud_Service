@@ -21,6 +21,7 @@ ini_set('log_errors', '1');
 error_reporting(E_ALL);
 
 require __DIR__ . '/lib/Response.php';
+require __DIR__ . '/lib/SecurityHeaders.php';
 
 define('APP_ENTRY', true);
 
@@ -33,4 +34,5 @@ if (!file_exists($configFile)) {
 $config = require $configFile;
 
 header('Content-Type: application/json; charset=utf-8');
+SecurityHeaders::send($config, SecurityHeaders::API_CSP);
 Response::json(['apiKey' => $config['api_key']]);

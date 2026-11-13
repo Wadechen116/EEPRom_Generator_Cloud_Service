@@ -81,14 +81,11 @@ ALTER TABLE eeprom_config
 -- an account without ever putting a plaintext password in a file or in chat.
 --
 -- NOTE: this reflects the table as actually created on the remote server (login
--- column is named `name`, not `account`; api/login.php aliases it). It also still
--- has a plaintext `password` column from manual creation -- api/login.php never
--- reads it, and it should be dropped/cleared once you're comfortable doing so:
---   ALTER TABLE users DROP COLUMN password;
+-- column is named `name`, not `account`; api/login.php aliases it). Its old plaintext
+-- `password` column is removed by sql/migrate_2026-11-13_security.sql (part 2).
 CREATE TABLE IF NOT EXISTS users (
     id             INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     name           VARCHAR(100) NOT NULL UNIQUE,   -- login account name
-    password       VARCHAR(255) NULL,              -- legacy/unused, plaintext -- see note above
     password_hash  VARCHAR(255) NOT NULL,           -- bcrypt hash, checked by api/login.php
     email          VARCHAR(255) NULL UNIQUE,       -- optional; api/forgot_password.php mails the reset link here (no email = no reset)
     -- Most-recent login/logout only (overwritten every time), not a full
@@ -120,6 +117,20 @@ CREATE TABLE IF NOT EXISTS password_resets (
     UNIQUE KEY uq_password_resets_token (token_hash),
     KEY idx_password_resets_user (user_id, created_at),
     KEY idx_password_resets_ip (requested_ip, created_at)
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Failed sign-ins for the login attempt limit (api/lib/LoginThrottle.php). Rows older than
+-- a day are purged by the code. attempted_at is UTC, written by PHP. Added by
+-- sql/migrate_2026-11-13_security.sql (part 1).
+CREATE TABLE IF NOT EXISTS login_attempts (
+    id            BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    account       VARCHAR(100) NOT NULL,   -- as typed, lower-cased; may not exist
+    ip            VARCHAR(45)  NOT NULL,
+    source        VARCHAR(16)  NOT NULL,   -- web / header / monitor
+    attempted_at  DATETIME     NOT NULL,
+    KEY idx_login_attempts_account (account, attempted_at),
+    KEY idx_login_attempts_ip (ip, attempted_at)
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
