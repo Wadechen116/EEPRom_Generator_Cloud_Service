@@ -31,6 +31,32 @@ class Mailer {
             && !empty($config['app_url']);
     }
 
+    /**
+     * The address in the reset mail:  <app_url>/index.html#reset=<token>.
+     *
+     * The page is named instead of leaving it to the directory address. A bare ".../chamonix/" is answered with
+     * whatever the web server's DirectoryIndex lists first, and on this server that is an index.php, not the
+     * app's index.html, so the link opened the wrong page. If app_url already ends in a page (.html, .htm, .php)
+     * it is used as it is. The token stays in the fragment (never sent to the server, so not in access logs).
+     */
+    public static function resetLink(array $config, string $token): string {
+        $base = (string) ($config['app_url'] ?? '');
+        $hash = strpos($base, '#');
+        if ($hash !== false) {
+            // app_url is the address of the SITE, not of a reset link. A "#" in it means someone pasted a whole
+            // link (".../index.html#reset=<token>"), which would put a second "#reset=" in the mailed address and
+            // make every link fail. Drop the fragment and say so.
+            error_log('[Mailer] app_url in config.php contains "#" and everything from it is ignored: it must be the '
+                . 'site\'s address only, e.g. https://host/chamonix');
+            $base = substr($base, 0, $hash);
+        }
+        $base = rtrim($base, '/');
+        if (!preg_match('~\.(html?|php)$~i', $base)) {
+            $base .= '/index.html';
+        }
+        return $base . '#reset=' . $token;
+    }
+
     /** Minutes a reset link stays valid. Clamped so a typo in config can't make it 0 or a year. */
     public static function resetTtlMinutes(array $config): int {
         $ttl = (int) ($config['mail']['reset_ttl_minutes'] ?? 30);
@@ -95,9 +121,13 @@ class Mailer {
 
             $mail->setFrom((string) $cfg['from'], (string) ($cfg['from_name'] ?? ''));
             $mail->addAddress($toEmail);
-            $mail->isHTML(false);
+            // Two versions of the same text. The link is 100+ characters, wider than the 76-78 columns most mail
+            // programs show a plain-text line in, so they fold it in two and only the first piece becomes a
+            // hyperlink. In the HTML part the address sits in an href behind a short label and cannot be folded.
+            $mail->isHTML(true);
             $mail->Subject = 'Reset your password - EEPROM Generator cloud service';
-            $mail->Body = self::resetBody($account, $link, $ttlMinutes);
+            $mail->Body = self::resetBodyHtml($account, $link, $ttlMinutes);
+            $mail->AltBody = self::resetBody($account, $link, $ttlMinutes);
 
             $mail->send();
             return true;
@@ -112,6 +142,7 @@ class Mailer {
         }
     }
 
+    /** Plain-text version (shown by programs that do not show HTML, and by PHPMailer as the alternative part). */
     private static function resetBody(string $account, string $link, int $ttlMinutes): string {
         return "Hello {$account},\r\n"
             . "\r\n"
@@ -121,6 +152,23 @@ class Mailer {
             . "\r\n"
             . "{$link}\r\n"
             . "\r\n"
+            . "If your mail program shows that link in two pieces, paste both pieces into the browser's address bar\r\n"
+            . "one after the other, with nothing between them, as a single line.\r\n"
+            . "\r\n"
             . "If you did not ask for this, ignore this email: your password has not been changed.\r\n";
+    }
+
+    /** HTML version: the same words, with the link behind a short label. Everything inserted is escaped. */
+    private static function resetBodyHtml(string $account, string $link, int $ttlMinutes): string {
+        $e = static function (string $s): string {
+            return htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        };
+        $href = $e($link);
+        return '<p>Hello ' . $e($account) . ',</p>' . "\r\n"
+            . '<p>We received a request to reset the password of your account on the EEPROM Generator cloud service.</p>' . "\r\n"
+            . '<p><a href="' . $href . '">Choose a new password</a></p>' . "\r\n"
+            . '<p>The link works once and expires in ' . (int) $ttlMinutes . ' minutes. If it does not open, copy this whole address '
+            . 'into the browser\'s address bar as one line:<br>' . $href . '</p>' . "\r\n"
+            . '<p>If you did not ask for this, ignore this email: your password has not been changed.</p>' . "\r\n";
     }
 }

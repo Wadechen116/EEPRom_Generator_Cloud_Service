@@ -36,8 +36,11 @@ return [
 
     // ---- Forgot-password email (api/forgot_password.php, api/lib/Mailer.php) -------------------
     //
-    // Public address of THIS site, as users reach it, with any sub-path and no trailing slash. The reset
-    // link in the email is built from it. It is configured, not read from the request, because the Host
+    // Public address of THIS site, as users reach it, with any sub-path and no trailing slash: ONLY the address,
+    // e.g. 'https://pend.soinc.com.tw/chamonix'. Not the reset link (no "index.html#reset=<token>" here: the
+    // program adds the page name and the token itself). The reset
+    // link in the email is built from it, as <app_url>/index.html#reset=<token> (the page is named so the
+    // web server's DirectoryIndex order cannot send the link to another index file). It is configured, not read from the request, because the Host
     // header is chosen by whoever sends the request -- and a forged one would put an attacker's address
     // into a real, signed-looking email.
     'app_url' => 'https://pend.soinc.com.tw/chamonix',   // CONFIRM: the URL users type in the browser

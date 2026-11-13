@@ -22,7 +22,7 @@
  *      that was never delivered) and the reason is logged. This is where the SMTP relay's
  *      "554 5.7.1 ... Client host rejected: Access denied" shows up until the mail admin allows the server.
  *
- * The link is  <app_url>/#reset=<token>.  The token sits in the URL FRAGMENT on purpose: browsers never
+ * The link is  <app_url>/index.html#reset=<token>  (Mailer::resetLink).  The token sits in the URL FRAGMENT on purpose: browsers never
  * send a fragment to the server, so it stays out of Apache access logs, proxy logs and the Referer header.
  * The base comes from config ('app_url'), never from the request's Host header, which a client controls.
  *
@@ -135,7 +135,7 @@ function processForgotPassword(PDO $pdo, array $config, string $identifier): voi
         throw $e;
     }
 
-    $link = rtrim((string) $config['app_url'], '/') . '/#reset=' . $token;
+    $link = Mailer::resetLink($config, $token);
     if (!Mailer::sendPasswordReset($config, (string) $user['email'], (string) $user['name'], $link, $ttl)) {
         // Never delivered: drop the link so it is not a live credential nobody holds, and so the
         // user can ask again straight away instead of waiting out the cooldown. Reason is already logged.
